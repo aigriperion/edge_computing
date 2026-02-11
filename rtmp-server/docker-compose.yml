@@ -1,0 +1,11 @@
+services:
+  rtmp:
+    image: alfg/nginx-rtmp:latest
+    container_name: rtmp
+    ports:
+      - "1935:1935"
+      - "8080:8080"
+    volumes:
+      - ./nginx.conf:/tmp/nginx.conf
+    command: ["nginx", "-g", "daemon off;", "-c", "/tmp/nginx.conf"]
+    restart: unless-stopped

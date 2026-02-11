@@ -1,87 +1,99 @@
-﻿# Edge Computing RTMP - Guide de mise en place
+﻿# Edge Computing RTMP
 
-Ce depot contient deux composants qui fonctionnent ensemble:
+Projet compose de 2 briques:
 
-- `rtmp-server/`: serveur RTMP base sur Nginx (dans Docker)
+- `rtmp-server/`: serveur RTMP Nginx dans Docker
 - `EdgeComputer/`: application Android qui capture la camera et publie un flux RTMP
 
-L'objectif du projet est de diffuser un flux video depuis un smartphone Android vers un serveur RTMP local sur le reseau.
+Objectif: streamer la video du smartphone vers un serveur RTMP local du meme reseau.
 
-## Architecture du projet
+## Architecture
 
-- Le serveur expose `1935/tcp` pour RTMP
-- Le serveur expose `8080/tcp` pour un endpoint HTTP de verification
-- L'application Android envoie le flux vers `rtmp://<IP_DU_PC>:1935/live/stream`
+- Ingestion RTMP: `rtmp://<IP_DU_PC>:1935/live/stream`
+- Port RTMP: `1935/tcp`
+- Endpoint de verification serveur: `http://<IP_DU_PC>:8080/`
 
-## Prerequis
+## Prerequis generaux
 
-### 1) Serveur (PC)
+- Windows 10/11
+- Docker Desktop actif
+- Android Studio installe
+- Smartphone Android avec camera
+- PC et smartphone sur le meme reseau local
 
-- Windows 10 ou Windows 11
-- Docker Desktop installe et demarre
-- Docker Compose disponible (`docker compose`)
-- Le PC et le telephone sur le meme reseau local (Wi-Fi/LAN)
+## Configuration Android requise
 
-Optionnel mais utile:
+Valeurs exactes relevees dans le projet `EdgeComputer/`.
 
-- VLC (lecture RTMP)
-- FFmpeg/ffplay (debug faible latence)
+| Element | Valeur requise | Source projet |
+|---|---|---|
+| Android Gradle Plugin | `9.0.0` | `EdgeComputer/gradle/libs.versions.toml` |
+| Gradle Wrapper | `9.2.1` | `EdgeComputer/gradle/wrapper/gradle-wrapper.properties` |
+| compileSdk | `36` (minor `1`) | `EdgeComputer/app/build.gradle.kts` |
+| targetSdk | `36` | `EdgeComputer/app/build.gradle.kts` |
+| minSdk | `16` | `EdgeComputer/app/build.gradle.kts` |
+| Java source/target | `11` | `EdgeComputer/app/build.gradle.kts` |
+| JDK de build (toolchain) | `21` recommande | `EdgeComputer/gradle/gradle-daemon-jvm.properties` |
+| NDK | `17.2.4988734` | `EdgeComputer/app/build.gradle.kts` |
+| CMake | `3.22.1` | `EdgeComputer/app/build.gradle.kts` |
+| MultiDex | active | `EdgeComputer/app/build.gradle.kts` |
 
-### 2) Environnement Android
+### SDK/NDK a installer dans Android Studio
 
-- Android Studio recent
-- SDK Android avec API 36 (compile/target du projet)
-- JDK 21 (toolchain Gradle detectee)
-- NDK `17.2.4988734`
-- CMake `3.22.1`
-- Un appareil Android physique (la camera est requise)
+Dans `SDK Manager`, installer au minimum:
 
-Notes techniques du projet Android:
+- `Android SDK Platform 36`
+- `Android SDK Build-Tools` compatibles API 36
+- `Android SDK Platform-Tools`
+- `Android SDK Command-line Tools (latest)`
+- `NDK (Side by side)` version `17.2.4988734`
+- `CMake` version `3.22.1`
 
-- `minSdk = 16`
-- Java source/target = 11
-- Dependance streaming: `com.github.pedroSG94.RootEncoder:library:2.6.7`
+### Permissions et materiel Android utilises
 
-## Installation et demarrage
+- Permissions: `CAMERA`, `INTERNET`, `RECORD_AUDIO`
+- Features: camera requise, accelerometre optionnel
+- Application: `androidx.multidex.MultiDexApplication`
 
-### Etape 1 - Cloner le depot
+Fichier de reference: `EdgeComputer/app/src/main/AndroidManifest.xml`.
+
+## Mise en place du projet
+
+### 1) Cloner le depot
 
 ```bash
 git clone <URL_DU_REPO>
 cd edge_computing
 ```
 
-### Etape 2 - Demarrer le serveur RTMP
-
-Depuis la racine du projet:
+### 2) Demarrer le serveur RTMP
 
 ```bash
 docker compose -f rtmp-server/docker-compose.yml up -d
 ```
 
-Verifier que le conteneur tourne:
+Verifier le serveur:
 
 ```bash
 docker ps
-```
-
-Verifier l'endpoint HTTP local:
-
-```bash
 curl http://localhost:8080/
 ```
 
-La reponse attendue est `nginx-rtmp OK`.
+Reponse attendue:
 
-Suivre les logs RTMP:
+```text
+nginx-rtmp OK
+```
+
+Logs serveur:
 
 ```bash
 docker logs -f rtmp
 ```
 
-### Etape 3 - Configurer l'URL RTMP dans l'app Android
+### 3) Configurer l'URL RTMP dans l'app Android
 
-Dans `EdgeComputer/app/src/main/java/com/example/edgecomputer/MainActivity.java`, adapter la constante:
+Modifier `EdgeComputer/app/src/main/java/com/example/edgecomputer/MainActivity.java`:
 
 ```java
 private static final String RTMP_URL = "rtmp://<IP_DU_PC>:1935/live/stream";
@@ -93,64 +105,51 @@ Exemple:
 rtmp://192.168.0.28:1935/live/stream
 ```
 
-Pour obtenir l'IP du PC sous Windows:
+Recuperer l'IP locale du PC:
 
 ```powershell
 ipconfig
 ```
 
-Prendre l'IPv4 de la carte reseau utilisee par le meme Wi-Fi/LAN que le telephone.
+### 4) Ouvrir et lancer l'app Android
 
-### Etape 4 - Lancer l'application Android
+- Ouvrir `EdgeComputer/` dans Android Studio
+- Laisser la sync Gradle se terminer
+- Brancher un appareil Android physique
+- Accepter les permissions camera/micro
+- Lancer l'application
 
-1. Ouvrir `EdgeComputer/` dans Android Studio
-2. Laisser Gradle synchroniser le projet
-3. Connecter un telephone Android
-4. Accepter les permissions camera/micro
-5. Lancer l'application
-
-Le flux demarre automatiquement quand la surface video est prete.
+Le stream demarre automatiquement quand la surface camera est prete.
 
 ## Verification du streaming
 
-Depuis VLC (sur le PC), ouvrir le flux reseau:
+Avec VLC (sur le PC), ouvrir:
 
 ```text
 rtmp://<IP_DU_PC>:1935/live/stream
 ```
 
-Dans les logs Docker, vous devez voir des evenements de type:
+Dans `docker logs -f rtmp`, verifier des lignes de type:
 
 - `connect app='live'`
 - `publish name='stream'`
 
-## Comportement actuel de l'application
-
-- Demarre le stream automatiquement apres permissions + initialisation camera
-- Utilise l'accelerometre pour basculer de camera (face avant/arriere)
-- Arrete le stream au `onPause` et a la destruction de la surface
-
 ## Depannage rapide
 
-- Aucun flux dans VLC:
-  - Verifier que le smartphone et le PC sont sur le meme reseau
-  - Verifier l'IP configuree dans `RTMP_URL`
-  - Verifier que le port `1935` n'est pas bloque (pare-feu Windows)
-- Erreur de connexion RTMP:
-  - Verifier que le conteneur `rtmp` est en cours d'execution
-  - Lire les logs: `docker logs -f rtmp`
-- Camera non disponible:
-  - Fermer toute autre application utilisant deja la camera
+- `Aucun flux`: verifier IP, reseau local commun, port `1935`, et etat du conteneur `rtmp`
+- `Connexion RTMP en erreur`: verifier `docker logs -f rtmp`
+- `Erreur camera Android`: fermer les autres apps qui utilisent la camera et revalider les permissions runtime
+- `Erreur de build Android`: verifier JDK, SDK API 36, NDK `17.2.4988734`, CMake `3.22.1`
 
 ## Commandes utiles
 
 ```bash
-# Demarrer le serveur
+# Demarrage serveur
 docker compose -f rtmp-server/docker-compose.yml up -d
 
-# Arreter le serveur
+# Arret serveur
 docker compose -f rtmp-server/docker-compose.yml down
 
-# Logs serveur
+# Logs serveur RTMP
 docker logs -f rtmp
 ```

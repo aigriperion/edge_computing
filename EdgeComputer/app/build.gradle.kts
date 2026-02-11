@@ -12,6 +12,8 @@ android {
     }
 
     defaultConfig {
+        multiDexEnabled = true
+        
         applicationId = "com.example.edgecomputer"
         minSdk = 16
         targetSdk = 36
@@ -47,6 +49,7 @@ android {
 
 dependencies {
     implementation("com.github.pedroSG94.RootEncoder:library:2.6.7")
+    implementation("androidx.multidex:multidex:2.0.1")
 
     implementation(libs.appcompat)
     implementation(libs.material)

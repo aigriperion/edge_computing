@@ -2,7 +2,7 @@
 // Created by girard on 18/02/2026.
 //
 
-#include "CV_Manager.h"
+#include "headers/CV_Manager.h"
 
 using namespace std;
 using namespace cv;
@@ -81,8 +81,9 @@ void CV_Manager::CameraLoop() {
         m_image_reader->DisplayImage(&buffer, m_image);
         display_mat = Mat(buffer.height, buffer.stride, CV_8UC4, buffer.bits);
         //BarcodeDetect(display_mat);
-
-        //m_Client->SendImage(display_mat);
+        if (m_Client) {
+            m_Client->SendImage(display_mat);
+        }
         ANativeWindow_unlockAndPost(m_native_window);
         ANativeWindow_release(m_native_window);
         ReleaseMats();

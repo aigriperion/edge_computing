@@ -5,8 +5,8 @@
 #include <memory>
 #include <thread>
 
-#include "Util.h"
-#include "CV_Manager.h"
+#include "headers/Util.h"
+#include "headers/CV_Manager.h"
 
 // Manager global (une seule instance)
 static std::unique_ptr<CV_Manager> gCv;

@@ -18,7 +18,6 @@
 #include <vector>
 #include <thread>
 
-
 using namespace cv;
 using namespace std;
 

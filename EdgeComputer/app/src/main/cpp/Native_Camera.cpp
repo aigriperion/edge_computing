@@ -3,7 +3,7 @@
 //
 
 
-#include "Native_Camera.h"
+#include "headers/Native_Camera.h"
 
 
 Native_Camera::Native_Camera(camera_type type) {

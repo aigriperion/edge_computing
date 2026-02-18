@@ -2,10 +2,10 @@
 // Created by girard on 18/02/2026.
 //
 
-#include "Image_Reader.h"
+#include "headers/Image_Reader.h"
 #include <string>
 #include <opencv2/imgproc.hpp>
-#include "Util.h"
+#include "headers/Util.h"
 
 
 /**

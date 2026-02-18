@@ -39,6 +39,7 @@ public class MainActivity extends AppCompatActivity {
     public native void scan();
     public native void flipCamera();
     public native void setSurface(Surface surface);
+    public native void release();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -89,6 +90,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void surfaceDestroyed(@NonNull SurfaceHolder holder) {
                 Log.v(TAG, "surfaceDestroyed");
+                release();
             }
         });
 

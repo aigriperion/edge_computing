@@ -58,19 +58,24 @@ void CV_Manager::SetUpCamera() {
 
 void CV_Manager::CameraLoop() {
     bool buffer_printout = false;
+    m_camera_thread_stopped = false;
 
-    while (1) {
-        if (m_camera_thread_stopped) { break; }
+    while (!m_camera_thread_stopped) {
         if (!m_camera_ready || !m_image_reader) { continue; }
         m_image = m_image_reader->GetLatestImage();
         if (m_image == nullptr) { continue; }
 
-        ANativeWindow_acquire(m_native_window);
+        if (m_camera_thread_stopped) {
+            m_image_reader->DeleteImage(m_image);
+            m_image = nullptr;
+            break;
+        }
+
         ANativeWindow_Buffer buffer;
         if (ANativeWindow_lock(m_native_window, &buffer, nullptr) < 0) {
             m_image_reader->DeleteImage(m_image);
             m_image = nullptr;
-            continue;
+            break;  // lock failed = surface probably destroyed, exit loop
         }
 
         if (!buffer_printout) {
@@ -85,9 +90,9 @@ void CV_Manager::CameraLoop() {
             m_Client->SendImage(display_mat);
         }
         ANativeWindow_unlockAndPost(m_native_window);
-        ANativeWindow_release(m_native_window);
         ReleaseMats();
     }
+    LOGI("CameraLoop exited cleanly");
 }
 
 void CV_Manager::BarcodeDetect(Mat &frame) {
@@ -140,25 +145,19 @@ void CV_Manager::RunCV() {
 }
 
 void CV_Manager::HaltCamera() {
-    if (m_native_camera == nullptr) {
-        LOGE("Can't flip camera without camera instance");
-        return;
-    } else if (m_native_camera->GetCameraCount() < 2) {
-        LOGE("Only one camera is available");
-        return;
-    }
     m_camera_thread_stopped = true;
 }
 
 void CV_Manager::FlipCamera() {
-    m_camera_thread_stopped = false;
-
     // Réinitialisation des ressources
     if (m_image_reader != nullptr) {
         delete m_image_reader;
         m_image_reader = nullptr;
     }
-    delete m_native_camera;
+    if (m_native_camera != nullptr) {
+        delete m_native_camera;
+        m_native_camera = nullptr;
+    }
 
     if (m_selected_camera_type == FRONT_CAMERA) {
         m_selected_camera_type = BACK_CAMERA;
@@ -167,8 +166,6 @@ void CV_Manager::FlipCamera() {
     }
 
     SetUpCamera();
-    std::thread loopThread(&CV_Manager::CameraLoop, this);
-    loopThread.detach();
 }
 void CV_Manager::SetUpTCP()
 {

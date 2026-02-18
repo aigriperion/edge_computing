@@ -70,8 +70,9 @@ private:
     Scalar CV_RED = Scalar(255, 0, 0);
     Scalar CV_GREEN = Scalar(0, 255, 0);
     Scalar CV_BLUE = Scalar(0, 0, 255);
-    bool m_camera_thread_stopped = false;
+    atomic_bool m_camera_thread_stopped{true};
     SocketClient*     m_Client;
+    thread m_loopThread;
 };
 
 #endif //EDGECOMPUTER_CV_MANAGER_H

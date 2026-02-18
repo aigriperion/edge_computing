@@ -1,7 +1,6 @@
 #include <jni.h>
 #include <android/native_window_jni.h>
 #include <android/native_window.h>
-#include <unistd.h>          // usleep
 #include <memory>
 #include <thread>
 
@@ -14,24 +13,36 @@ static ANativeWindow* gWindow = nullptr;
 static int gWinW = 0;
 static int gWinH = 0;
 
+static std::thread gCameraThread;
+
 static void startCameraThreadIfNeeded() {
+    // Si un thread précédent est encore joinable, on le rejoint d'abord
+    if (gCameraThread.joinable()) {
+        gCameraThread.join();
+    }
     // CV_Manager::CameraLoop() tourne en boucle jusqu'à m_camera_thread_stopped
-    std::thread t([]() {
+    gCameraThread = std::thread([]() {
         if (gCv) {
             LOGI("CameraLoop thread started");
             gCv->CameraLoop();
             LOGI("CameraLoop thread ended");
         }
     });
-    t.detach();
 }
 
 static void cleanupAll() {
     if (gCv) {
-        // Stop loop + cleanup
+        // Stop loop
         gCv->HaltCamera();
-        // petit délai pour laisser la loop sortir proprement
-        usleep(200 * 1000);
+    }
+
+    // Attendre que le thread se termine proprement
+    if (gCameraThread.joinable()) {
+        gCameraThread.join();
+    }
+
+    // Maintenant on peut détruire les ressources en toute sécurité
+    if (gCv) {
         gCv.reset();
     }
 
@@ -123,10 +134,13 @@ Java_com_example_edgecomputer_MainActivity_flipCamera(
 
     LOGI("flipCamera: stopping loop");
     gCv->HaltCamera();
-    usleep(250 * 1000); // laisse la loop sortir
+    if (gCameraThread.joinable()) {
+        gCameraThread.join();
+    }
 
     LOGI("flipCamera: flipping");
     gCv->FlipCamera();
+    startCameraThreadIfNeeded();
 }
 
 /**

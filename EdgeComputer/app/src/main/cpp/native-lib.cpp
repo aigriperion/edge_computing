@@ -1,12 +1,26 @@
 #include <jni.h>
-#include <string>
+#include <android/native_window_jni.h>
+#include "Camera.h"
 
-extern "C"
-JNIEXPORT jstring JNICALL
-Java_com_example_edgecomputer_MainActivity_stringFromJNI(
-        JNIEnv* env,
-        jobject /* this */) {
+static Camera gCamera;
 
-    std::string hello = "Hello from C++";
-    return env->NewStringUTF(hello.c_str());
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_edgecomputer_MainActivity_nativeSetPreviewSurface(
+        JNIEnv* env, jclass, jobject surface) {
+    ANativeWindow* win = ANativeWindow_fromSurface(env, surface);
+    gCamera.setPreviewWindow(win);
+    // setPreviewWindow() fait acquire, donc on peut release ici
+    ANativeWindow_release(win);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_edgecomputer_MainActivity_nativeStartCamera(
+        JNIEnv*, jclass, jint width, jint height) {
+    gCamera.start((int)width, (int)height);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_edgecomputer_MainActivity_nativeStopCamera(
+        JNIEnv*, jclass) {
+    gCamera.stop();
 }

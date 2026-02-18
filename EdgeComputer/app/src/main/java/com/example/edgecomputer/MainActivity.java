@@ -19,13 +19,13 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import com.qalycles.rinnegan.databinding.ActivityMainBinding;
+import com.example.edgecomputer.databinding.ActivityMainBinding;
 
 public class MainActivity extends AppCompatActivity {
 
     // Chargement de la librairie native lors du démarrage de l'application
     static {
-        System.loadLibrary("rinnegan");
+        System.loadLibrary("edgecomputer");
     }
 
     private static final String TAG = "CameraNDK";

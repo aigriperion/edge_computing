@@ -12,6 +12,8 @@ import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import android.view.WindowInsetsController;
+import android.view.WindowInsets;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -34,8 +36,10 @@ public class MainActivity extends AppCompatActivity {
     // Utilisation du View Binding pour éviter les findViewById
     private ActivityMainBinding binding;
 
+    private boolean cameraRunning = false;
+    private SurfaceHolder surfaceHolder;
+
     // Méthodes natives
-    //public native void onCreateJNI(AppCompatActivity callerActivity, AssetManager assetManager);
     public native void scan();
     public native void flipCamera();
     public native void setSurface(Surface surface);
@@ -48,12 +52,18 @@ public class MainActivity extends AppCompatActivity {
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
+        // Mode plein écran immersif
+        getWindow().setDecorFitsSystemWindows(false);
+        WindowInsetsController controller = getWindow().getInsetsController();
+        if (controller != null) {
+            controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
+            controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        }
+
         // Définition des permissions requises
         String[] requiredPermissions = {
                 Manifest.permission.CAMERA,
                 Manifest.permission.INTERNET,
-                //Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                //Manifest.permission.READ_EXTERNAL_STORAGE
         };
 
         // Vérification des permissions
@@ -69,17 +79,14 @@ public class MainActivity extends AppCompatActivity {
      * Elle configure le code natif, le SurfaceView, les listeners des boutons et affiche quelques infos sur la caméra.
      */
     private void initNativeComponents() {
-        // Initialisation native avec l'Activity et les assets
-        //onCreateJNI(this, getAssets());
-
         // Configuration du SurfaceView et de son callback
         SurfaceView surfaceView = binding.surfaceView;
-        SurfaceHolder surfaceHolder = surfaceView.getHolder();
+        surfaceHolder = surfaceView.getHolder();
         surfaceHolder.addCallback(new SurfaceHolder.Callback() {
             @Override
             public void surfaceCreated(@NonNull SurfaceHolder holder) {
                 Log.v(TAG, "surfaceCreated");
-                setSurface(holder.getSurface());
+                // La caméra ne démarre pas automatiquement, on attend le bouton Start
             }
 
             @Override
@@ -90,13 +97,46 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void surfaceDestroyed(@NonNull SurfaceHolder holder) {
                 Log.v(TAG, "surfaceDestroyed");
-                release();
+                if (cameraRunning) {
+                    release();
+                    cameraRunning = false;
+                    binding.startStopButton.setText("Start");
+                }
             }
         });
 
-        // Configuration des listeners des boutons à l'aide de lambda expressions
-        binding.scanButton.setOnClickListener(v -> scan());
-        binding.flipButton.setOnClickListener(v -> flipCamera());
+        // Bouton Start/Stop
+        binding.startStopButton.setOnClickListener(v -> {
+            if (cameraRunning) {
+                release();
+                cameraRunning = false;
+                binding.startStopButton.setText("Start");
+            } else {
+                Surface surface = surfaceHolder.getSurface();
+                if (surface != null && surface.isValid()) {
+                    setSurface(surface);
+                    cameraRunning = true;
+                    binding.startStopButton.setText("Stop");
+                }
+            }
+        });
+
+        // Boutons Scan et Flip : protégés par cameraRunning
+        binding.scanButton.setOnClickListener(v -> {
+            if (!cameraRunning) {
+                Toast.makeText(this, "Démarrez la caméra d'abord", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            scan();
+        });
+
+        binding.flipButton.setOnClickListener(v -> {
+            if (!cameraRunning) {
+                Toast.makeText(this, "Démarrez la caméra d'abord", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            flipCamera();
+        });
 
         // Affichage des informations sur les caméras disponibles
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
@@ -122,9 +162,6 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * Vérifie que toutes les permissions spécifiées sont accordées.
-     *
-     * @param permissions Tableau de permissions à vérifier.
-     * @return true si toutes les permissions sont accordées, false sinon.
      */
     private boolean hasPermissions(String[] permissions) {
         for (String permission : permissions) {
@@ -138,9 +175,6 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * Gestion de la réponse à la demande de permissions.
-     *
-     * Si toutes les permissions sont accordées, l'initialisation native est lancée.
-     * Sinon, un message est affiché et l'application se ferme.
      */
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,

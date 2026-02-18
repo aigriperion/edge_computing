@@ -95,28 +95,53 @@ bool Native_Camera::MatchCaptureSizeRequest(ImageFormat *resView, int32_t width,
     ACameraMetadata_getConstEntry(
             metadata, ACAMERA_SCALER_AVAILABLE_STREAM_CONFIGURATIONS, &entry);
     // format of the data: format, width, height, input?, type int32
-    bool foundIt = false;
-    Display_Dimension foundRes(4000, 3000); // max resolution for current gen phones
 
-    for (int i = 0; i < entry.count; ++i) {
+    // Cherche la plus petite resolution YUV qui couvre l'ecran
+    bool foundCover = false;
+    Display_Dimension coverRes(4000, 3000);
+
+    // Fallback : la plus grande resolution YUV disponible (par aire)
+    bool foundLargest = false;
+    int64_t largestArea = 0;
+    Display_Dimension largestRes(0, 0);
+
+    for (int i = 0; i < entry.count; i += 1) {
         int32_t input = entry.data.i32[i * 4 + 3];
         int32_t format = entry.data.i32[i * 4 + 0];
         if (input) continue;
 
-        if (format == AIMAGE_FORMAT_YUV_420_888 || format == AIMAGE_FORMAT_JPEG) {
+        if (format == AIMAGE_FORMAT_YUV_420_888) {
             Display_Dimension res(entry.data.i32[i * 4 + 1],
                                   entry.data.i32[i * 4 + 2]);
-            if (!disp.IsSameRatio(res)) continue;
-            if (format == AIMAGE_FORMAT_YUV_420_888 && foundRes > res) {
-                foundIt = true;
-                foundRes = res;
+
+            LOGI("Available YUV resolution: %d x %d", entry.data.i32[i * 4 + 1], entry.data.i32[i * 4 + 2]);
+
+            // Track largest by area as fallback
+            int64_t area = (int64_t)res.width() * res.height();
+            if (area > largestArea) {
+                largestArea = area;
+                largestRes = res;
+                foundLargest = true;
+            }
+
+            // Check if this resolution covers the display (both dimensions >=)
+            if (res.width() >= disp.width() && res.height() >= disp.height()) {
+                if (coverRes > res) {
+                    foundCover = true;
+                    coverRes = res;
+                }
             }
         }
     }
 
-    if (foundIt) {
-        resView->width = foundRes.org_width();
-        resView->height = foundRes.org_height();
+    if (foundCover) {
+        resView->width = coverRes.org_width();
+        resView->height = coverRes.org_height();
+        LOGI("MatchCapture: covering resolution %d x %d", resView->width, resView->height);
+    } else if (foundLargest) {
+        resView->width = largestRes.org_width();
+        resView->height = largestRes.org_height();
+        LOGI("MatchCapture: largest available resolution %d x %d", resView->width, resView->height);
     } else {
         if (disp.IsPortrait()) {
             resView->width = 600;
@@ -125,10 +150,11 @@ bool Native_Camera::MatchCaptureSizeRequest(ImageFormat *resView, int32_t width,
             resView->width = 800;
             resView->height = 600;
         }
+        LOGI("MatchCapture: fallback resolution %d x %d", resView->width, resView->height);
     }
     resView->format = AIMAGE_FORMAT_YUV_420_888;
     LOGI("--- W -- H -- %d -- %d", resView->width, resView->height);
-    return foundIt;
+    return foundCover || foundLargest;
 }
 
 bool Native_Camera::CreateCaptureSession(ANativeWindow *window) {

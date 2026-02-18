@@ -34,20 +34,19 @@ void CV_Manager::SetNativeWindow(ANativeWindow *native_window) {
 void CV_Manager::SetUpCamera() {
     m_native_camera = new Native_Camera(m_selected_camera_type);
 
-    // Détermine une résolution compatible pour la capture
-    m_native_camera->MatchCaptureSizeRequest(&m_view,
-                                             ANativeWindow_getWidth(m_native_window),
-                                             ANativeWindow_getHeight(m_native_window));
+    // Recuperer les dimensions reelles de l'ecran (avant setBuffersGeometry)
+    int32_t screenW = ANativeWindow_getWidth(m_native_window);
+    int32_t screenH = ANativeWindow_getHeight(m_native_window);
+    LOGI("Screen dimensions: %d x %d", screenW, screenH);
+
+    // Determine une resolution compatible pour la capture
+    m_native_camera->MatchCaptureSizeRequest(&m_view, screenW, screenH);
 
     ASSERT(m_view.width && m_view.height, "Could not find supportable resolution");
+    LOGI("Camera capture resolution: %d x %d", m_view.width, m_view.height);
 
-    // Optionnel : Log des dimensions réelles du native window
-    int nativeWidth = ANativeWindow_getWidth(m_native_window);
-    int nativeHeight = ANativeWindow_getHeight(m_native_window);
-    LOGI("Native window dimensions: %d x %d", nativeWidth, nativeHeight);
-
-    // Correction : utiliser la largeur puis la hauteur
-    ANativeWindow_setBuffersGeometry(m_native_window, m_view.width, m_view.height, WINDOW_FORMAT_RGBX_8888);
+    // Buffer geometry = dimensions ecran pour remplir toute la surface
+    ANativeWindow_setBuffersGeometry(m_native_window, screenW, screenH, WINDOW_FORMAT_RGBX_8888);
 
     m_image_reader = new Image_Reader(&m_view, AIMAGE_FORMAT_YUV_420_888);
     m_image_reader->SetPresentRotation(m_native_camera->GetOrientation());
@@ -111,18 +110,18 @@ void CV_Manager::BarcodeDetect(Mat &frame) {
     // Gradient total (approximation)
     addWeighted(abs_grad_x, 0.5, abs_grad_x, 0.5, 0, detected_edges);
 
-    // Réduction du bruit avec un flou gaussien
+    // Reduction du bruit avec un flou gaussien
     GaussianBlur(detected_edges, detected_edges, Size(3,3), 0, 0, BORDER_DEFAULT);
 
-    // Seuillage pour réduire davantage le bruit
+    // Seuillage pour reduire davantage le bruit
     threshold(detected_edges, thresh, 120, 255, THRESH_BINARY);
     threshold(thresh, thresh, 0, 255, THRESH_BINARY + THRESH_OTSU);
 
-    // Fermeture des espaces à l'aide d'un kernel rectangulaire
+    // Fermeture des espaces a l'aide d'un kernel rectangulaire
     kernel = getStructuringElement(MORPH_RECT, Size(21,7));
     morphologyEx(thresh, cleaned, MORPH_CLOSE, kernel);
 
-    // Érosion et dilatation pour affiner le résultat
+    // Erosion et dilatation pour affiner le resultat
     erode(cleaned, cleaned, anchor, Point(-1,-1), 4);
     dilate(cleaned, cleaned, anchor, Point(-1,-1), 4);
 
@@ -149,7 +148,7 @@ void CV_Manager::HaltCamera() {
 }
 
 void CV_Manager::FlipCamera() {
-    // Réinitialisation des ressources
+    // Reinitialisation des ressources
     if (m_image_reader != nullptr) {
         delete m_image_reader;
         m_image_reader = nullptr;

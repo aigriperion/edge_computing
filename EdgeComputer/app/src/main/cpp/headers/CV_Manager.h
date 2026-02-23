@@ -13,6 +13,7 @@
 #include "Native_Camera.h"
 #include "Util.h"
 #include "SocketTcp.h"
+#include "H264Encoder.h"
 #include <cstdlib>
 #include <string>
 #include <vector>
@@ -72,6 +73,7 @@ private:
     Scalar CV_BLUE = Scalar(0, 0, 255);
     atomic_bool m_camera_thread_stopped{true};
     SocketClient*     m_Client{nullptr};
+    H264Encoder*      m_encoder{nullptr};
     thread m_loopThread;
 };
 

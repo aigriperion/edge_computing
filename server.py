@@ -1,18 +1,19 @@
 import socket
 import struct
 import threading
-import time
-
-import cv2
-import numpy as np
+import queue
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 TCP_PORT = 9999
 HTTP_PORT = 8080
 
-_latest_frame = None
-_latest_jpeg = None
-_frame_lock = threading.Lock()
+# SPS/PPS config stockee globalement pour les nouveaux clients HTTP
+_config_data = None
+_config_lock = threading.Lock()
+
+# Liste des queues des clients HTTP abonnes (pub-sub)
+_subscribers = []
+_subscribers_lock = threading.Lock()
 
 
 def recv_exact(sock, n):
@@ -26,8 +27,36 @@ def recv_exact(sock, n):
     return bytes(buf)
 
 
+def publish(data):
+    """Publie un chunk H.264 a tous les abonnes HTTP."""
+    with _subscribers_lock:
+        dead = []
+        for q in _subscribers:
+            try:
+                q.put_nowait(data)
+            except queue.Full:
+                dead.append(q)
+        for q in dead:
+            _subscribers.remove(q)
+
+
+def subscribe():
+    """Cree et enregistre une nouvelle queue d'abonne."""
+    q = queue.Queue(maxsize=300)
+    with _subscribers_lock:
+        _subscribers.append(q)
+    return q
+
+
+def unsubscribe(q):
+    """Retire une queue d'abonne."""
+    with _subscribers_lock:
+        if q in _subscribers:
+            _subscribers.remove(q)
+
+
 def tcp_receiver():
-    global _latest_frame, _latest_jpeg
+    global _config_data
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -50,7 +79,7 @@ def tcp_receiver():
 
 
 def handle_client(conn):
-    global _latest_frame, _latest_jpeg
+    global _config_data
     frame_count = 0
 
     while True:
@@ -58,65 +87,78 @@ def handle_client(conn):
         msg_type = type_byte[0]
 
         if msg_type == 1:
+            # Dimensions
             data = recv_exact(conn, 8)
             width, height = struct.unpack("<ii", data)
             print(f"[TCP] Dimensions recues : {width} x {height}")
 
-        elif msg_type == 2:
+        elif msg_type == 3:
+            # H.264 config (SPS/PPS)
             data = recv_exact(conn, 4)
             size = struct.unpack("<i", data)[0]
-            jpeg_data = recv_exact(conn, size)
+            config = recv_exact(conn, size)
+
+            with _config_lock:
+                _config_data = config
+
+            publish(config)
+            print(f"[TCP] Config SPS/PPS recue ({size} octets)")
+
+        elif msg_type == 2:
+            # H.264 frame data
+            data = recv_exact(conn, 4)
+            size = struct.unpack("<i", data)[0]
+            frame_data = recv_exact(conn, size)
+
+            publish(frame_data)
             frame_count += 1
 
-            # Decoder le JPEG en cv2 Mat (BGR)
-            arr = np.frombuffer(jpeg_data, dtype=np.uint8)
-            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-
-            if frame is not None:
-                with _frame_lock:
-                    _latest_frame = frame
-                    _latest_jpeg = jpeg_data
-
             if frame_count % 30 == 0:
-                print(f"[TCP] {frame_count} frames recues (derniere : {size} octets)")
+                print(f"[TCP] {frame_count} frames H.264 recues (derniere : {size} octets)")
 
         else:
             print(f"[TCP] Type inconnu : {msg_type}, abandon")
             break
 
 
-BOUNDARY = b"--frame"
-
-
-class MJPEGHandler(BaseHTTPRequestHandler):
+class H264StreamHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
-        self.send_header("Content-Type",
-                         "multipart/x-mixed-replace; boundary=frame")
+        self.send_header("Content-Type", "video/h264")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
         self.end_headers()
 
         print(f"[HTTP] Client VLC connecte : {self.client_address}")
+
+        # Envoyer le SPS/PPS en premier si disponible
+        with _config_lock:
+            config = _config_data
+
+        if config:
+            try:
+                self.wfile.write(config)
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                print(f"[HTTP] Client VLC deconnecte : {self.client_address}")
+                return
+
+        # S'abonner au flux
+        q = subscribe()
         try:
             while True:
-                with _frame_lock:
-                    jpeg = _latest_jpeg
-
-                if jpeg is None:
-                    time.sleep(0.05)
+                try:
+                    chunk = q.get(timeout=5.0)
+                except queue.Empty:
                     continue
 
-                self.wfile.write(BOUNDARY + b"\r\n")
-                self.wfile.write(b"Content-Type: image/jpeg\r\n")
-                self.wfile.write(f"Content-Length: {len(jpeg)}\r\n".encode())
-                self.wfile.write(b"\r\n")
-                self.wfile.write(jpeg)
-                self.wfile.write(b"\r\n")
+                self.wfile.write(chunk)
                 self.wfile.flush()
-
-                time.sleep(0.033)  # ~30 fps max
 
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             print(f"[HTTP] Client VLC deconnecte : {self.client_address}")
+        finally:
+            unsubscribe(q)
 
     def log_message(self, format, *args):
         pass
@@ -126,8 +168,8 @@ if __name__ == "__main__":
     tcp_thread = threading.Thread(target=tcp_receiver, daemon=True)
     tcp_thread.start()
 
-    http_server = HTTPServer(("0.0.0.0", HTTP_PORT), MJPEGHandler)
-    print(f"[HTTP] Serveur MJPEG demarre sur http://0.0.0.0:{HTTP_PORT}")
+    http_server = HTTPServer(("0.0.0.0", HTTP_PORT), H264StreamHandler)
+    print(f"[HTTP] Serveur H.264 demarre sur http://0.0.0.0:{HTTP_PORT}")
     print(f"[INFO] Ouvrir VLC -> Media -> Flux reseau -> http://<IP_DU_PC>:{HTTP_PORT}")
     try:
         http_server.serve_forever()

@@ -28,7 +28,12 @@ CV_Manager::~CV_Manager() {
         ANativeWindow_release(m_native_window);
         m_native_window = nullptr;
     }
-    // 4. La socket TCP
+    // 4. L'encodeur H.264
+    if (m_encoder != nullptr) {
+        delete m_encoder;
+        m_encoder = nullptr;
+    }
+    // 5. La socket TCP
     if (m_Client != nullptr) {
         delete m_Client;
         m_Client = nullptr;
@@ -94,12 +99,20 @@ void CV_Manager::CameraLoop() {
         display_mat = Mat(buffer.height, buffer.stride, CV_8UC4, buffer.bits);
         //BarcodeDetect(display_mat);
         Mat send_mat;
-        if (m_Client) {
-            send_mat = display_mat.clone(); // copie avant unlock, buffer.bits sera invalide après
+        if (m_Client && m_encoder) {
+            send_mat = display_mat.clone(); // copie avant unlock, buffer.bits sera invalide apres
         }
         ANativeWindow_unlockAndPost(m_native_window);
-        if (m_Client) {
-            m_Client->SendImage(send_mat); // cvtColor + imencode + TCP hors du lock
+        if (m_Client && m_encoder) {
+            std::vector<H264Chunk> chunks;
+            m_encoder->Encode(send_mat, chunks);
+            for (const auto& chunk : chunks) {
+                if (chunk.isConfig) {
+                    m_Client->SendH264Config(chunk.data.data(), chunk.data.size());
+                } else {
+                    m_Client->SendH264Frame(chunk.data.data(), chunk.data.size());
+                }
+            }
         }
         ReleaseMats();
     }
@@ -180,16 +193,16 @@ void CV_Manager::FlipCamera() {
 }
 void CV_Manager::SetUpTCP()
 {
-
     const char hostname[] = "172.16.81.179";
     int port = 9999;
 
-    SocketClient* client =new SocketClient(hostname, port);
-
+    SocketClient* client = new SocketClient(hostname, port);
     client->ConnectToServer();
     client->SendImageDims(640, 480);
     setSocketClient(client);
 
+    m_encoder = new H264Encoder();
+    m_encoder->Init(640, 480, 2000000, 30);
 }
 void CV_Manager::setSocketClient(SocketClient *client)
 {

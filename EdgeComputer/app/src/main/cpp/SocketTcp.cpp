@@ -9,11 +9,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <errno.h>
-
-#include <vector>
 #include <cstring>
-#include <opencv2/imgproc.hpp>
-#include <opencv2/imgcodecs.hpp>
 
 SocketClient::SocketClient(const std::string& host, int port)
         : host_(host), port_(port) {}
@@ -72,9 +68,11 @@ bool SocketClient::sendAll(const void* data, size_t len) {
     return true;
 }
 
-// Petit protocole : on envoie un header 1 octet type + payload
-// type=1 -> dims (int32 w, int32 h)
-// type=2 -> jpeg (int32 size + bytes)
+// Protocole :
+// type=1 -> dims      : [0x01][width:i32LE][height:i32LE]
+// type=2 -> H.264 frame : [0x02][size:i32LE][h264_annex_b_data]
+// type=3 -> H.264 config (SPS/PPS) : [0x03][size:i32LE][sps_pps_annex_b_data]
+
 bool SocketClient::SendImageDims(int width, int height) {
     if (sock_ < 0) return false;
 
@@ -88,35 +86,26 @@ bool SocketClient::SendImageDims(int width, int height) {
     return true;
 }
 
-bool SocketClient::SendImage(const cv::Mat& img) {
+bool SocketClient::SendH264Config(const uint8_t* data, size_t size) {
     if (sock_ < 0) return false;
-    if (img.empty()) return false;
 
-    cv::Mat bgr;
-
-    // Tes frames dans CV_Manager sont souvent en CV_8UC4 (RGBA)
-    if (img.type() == CV_8UC4) {
-        cv::cvtColor(img, bgr, cv::COLOR_RGBA2BGR);
-    } else if (img.type() == CV_8UC3) {
-        bgr = img;
-    } else {
-        LOGE("SendImage: unsupported mat type=%d", img.type());
-        return false;
-    }
-
-    std::vector<uchar> jpeg;
-    std::vector<int> params = { cv::IMWRITE_JPEG_QUALITY, 80 };
-    if (!cv::imencode(".jpg", bgr, jpeg, params)) {
-        LOGE("imencode jpg failed");
-        return false;
-    }
-
-    uint8_t type = 2;
-    int32_t size = (int32_t)jpeg.size();
+    uint8_t type = 3;
+    int32_t sz = (int32_t)size;
 
     if (!sendAll(&type, 1)) return false;
-    if (!sendAll(&size, sizeof(size))) return false;
-    if (!sendAll(jpeg.data(), jpeg.size())) return false;
+    if (!sendAll(&sz, sizeof(sz))) return false;
+    if (!sendAll(data, size)) return false;
+    return true;
+}
 
+bool SocketClient::SendH264Frame(const uint8_t* data, size_t size) {
+    if (sock_ < 0) return false;
+
+    uint8_t type = 2;
+    int32_t sz = (int32_t)size;
+
+    if (!sendAll(&type, 1)) return false;
+    if (!sendAll(&sz, sizeof(sz))) return false;
+    if (!sendAll(data, size)) return false;
     return true;
 }

@@ -8,7 +8,6 @@
 
 #include <string>
 #include <cstdint>
-#include <opencv2/core.hpp>
 
 class SocketClient {
 public:
@@ -20,8 +19,11 @@ public:
 
     bool SendImageDims(int width, int height);
 
-    // Envoie une image OpenCV (on l’encode en JPEG pour éviter d’envoyer du brut énorme)
-    bool SendImage(const cv::Mat& rgba_or_bgr);
+    // Envoie le SPS/PPS (config H.264) - type 3
+    bool SendH264Config(const uint8_t* data, size_t size);
+
+    // Envoie une frame H.264 encodee - type 2
+    bool SendH264Frame(const uint8_t* data, size_t size);
 
 private:
     bool sendAll(const void* data, size_t len);

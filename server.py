@@ -6,22 +6,27 @@ Protocole TCP (little-endian) :
   type=2 : 1 octet + int32 size  + size octets     (frame JPEG)
 
 Utilisation :
-  1) Lancer :  python server.py
-  2) Lancer l'app Android (elle se connecte en TCP sur le port 9999)
-  3) Ouvrir VLC -> Media -> Ouvrir un flux reseau -> http://IP_DU_PC:8080
+  1) pip install -r requirements.txt
+  2) Lancer :  python server.py
+  3) Lancer l'app Android (elle se connecte en TCP sur le port 9999)
+  4) Ouvrir VLC -> Media -> Flux reseau -> http://IP_DU_PC:8080
 """
 
 import socket
 import struct
 import threading
 import time
+
+import cv2
+import numpy as np
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 TCP_PORT = 9999
 HTTP_PORT = 8080
 
-# Derniere frame JPEG recue (partagee entre threads)
-_latest_frame = None
+# Derniere frame decodee (cv2 Mat) et sa version JPEG pour le stream HTTP
+_latest_frame = None      # numpy array BGR
+_latest_jpeg = None       # bytes JPEG pour le flux HTTP
 _frame_lock = threading.Lock()
 
 
@@ -37,7 +42,7 @@ def recv_exact(sock, n):
 
 
 def tcp_receiver():
-    global _latest_frame
+    global _latest_frame, _latest_jpeg
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -60,7 +65,7 @@ def tcp_receiver():
 
 
 def handle_client(conn):
-    global _latest_frame
+    global _latest_frame, _latest_jpeg
     frame_count = 0
 
     while True:
@@ -78,8 +83,14 @@ def handle_client(conn):
             jpeg_data = recv_exact(conn, size)
             frame_count += 1
 
-            with _frame_lock:
-                _latest_frame = jpeg_data
+            # Decoder le JPEG en cv2 Mat (BGR)
+            arr = np.frombuffer(jpeg_data, dtype=np.uint8)
+            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+
+            if frame is not None:
+                with _frame_lock:
+                    _latest_frame = frame
+                    _latest_jpeg = jpeg_data
 
             if frame_count % 30 == 0:
                 print(f"[TCP] {frame_count} frames recues (derniere : {size} octets)")
@@ -103,23 +114,23 @@ class MJPEGHandler(BaseHTTPRequestHandler):
         try:
             while True:
                 with _frame_lock:
-                    frame = _latest_frame
+                    jpeg = _latest_jpeg
 
-                if frame is None:
+                if jpeg is None:
                     time.sleep(0.05)
                     continue
 
                 self.wfile.write(BOUNDARY + b"\r\n")
                 self.wfile.write(b"Content-Type: image/jpeg\r\n")
-                self.wfile.write(f"Content-Length: {len(frame)}\r\n".encode())
+                self.wfile.write(f"Content-Length: {len(jpeg)}\r\n".encode())
                 self.wfile.write(b"\r\n")
-                self.wfile.write(frame)
+                self.wfile.write(jpeg)
                 self.wfile.write(b"\r\n")
                 self.wfile.flush()
 
                 time.sleep(0.033)  # ~30 fps max
 
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             print(f"[HTTP] Client VLC deconnecte : {self.client_address}")
 
     def log_message(self, format, *args):

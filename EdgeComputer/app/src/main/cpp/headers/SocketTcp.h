@@ -20,8 +20,8 @@ public:
 
     bool SendImageDims(int width, int height);
 
-    // Envoie une image OpenCV (on l’encode en JPEG pour éviter d’envoyer du brut énorme)
-    bool SendImage(const cv::Mat& rgba_or_bgr);
+    // Envoie une image OpenCV (pixels bruts, sans encodage)
+    bool SendImage(const cv::Mat& img);
 
 private:
     bool sendAll(const void* data, size_t len);

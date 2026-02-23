@@ -181,7 +181,7 @@ void CV_Manager::FlipCamera() {
 void CV_Manager::SetUpTCP()
 {
 
-    const char hostname[] = "172.16.81.179";
+    const char hostname[] = "192.168.1.6";
     int port = 9999;
 
     SocketClient* client =new SocketClient(hostname, port);

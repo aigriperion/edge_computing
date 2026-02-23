@@ -10,10 +10,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-#include <vector>
 #include <cstring>
-#include <opencv2/imgproc.hpp>
-#include <opencv2/imgcodecs.hpp>
 
 SocketClient::SocketClient(const std::string& host, int port)
         : host_(host), port_(port) {}
@@ -74,7 +71,7 @@ bool SocketClient::sendAll(const void* data, size_t len) {
 
 // Petit protocole : on envoie un header 1 octet type + payload
 // type=1 -> dims (int32 w, int32 h)
-// type=2 -> jpeg (int32 size + bytes)
+// type=2 -> raw frame (int32 w, int32 h, int32 size, raw RGBA bytes)
 bool SocketClient::SendImageDims(int width, int height) {
     if (sock_ < 0) return false;
 
@@ -92,31 +89,19 @@ bool SocketClient::SendImage(const cv::Mat& img) {
     if (sock_ < 0) return false;
     if (img.empty()) return false;
 
-    cv::Mat bgr;
-
-    // Tes frames dans CV_Manager sont souvent en CV_8UC4 (RGBA)
-    if (img.type() == CV_8UC4) {
-        cv::cvtColor(img, bgr, cv::COLOR_RGBA2BGR);
-    } else if (img.type() == CV_8UC3) {
-        bgr = img;
-    } else {
-        LOGE("SendImage: unsupported mat type=%d", img.type());
-        return false;
-    }
-
-    std::vector<uchar> jpeg;
-    std::vector<int> params = { cv::IMWRITE_JPEG_QUALITY, 80 };
-    if (!cv::imencode(".jpg", bgr, jpeg, params)) {
-        LOGE("imencode jpg failed");
-        return false;
-    }
+    // Pas d'encodage : on envoie les pixels bruts (RGBA)
+    cv::Mat continuous = img.isContinuous() ? img : img.clone();
 
     uint8_t type = 2;
-    int32_t size = (int32_t)jpeg.size();
+    int32_t width = continuous.cols;
+    int32_t height = continuous.rows;
+    int32_t size = (int32_t)(continuous.total() * continuous.elemSize());
 
     if (!sendAll(&type, 1)) return false;
+    if (!sendAll(&width, sizeof(width))) return false;
+    if (!sendAll(&height, sizeof(height))) return false;
     if (!sendAll(&size, sizeof(size))) return false;
-    if (!sendAll(jpeg.data(), jpeg.size())) return false;
+    if (!sendAll(continuous.data, size)) return false;
 
     return true;
 }

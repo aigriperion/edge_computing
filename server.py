@@ -63,22 +63,24 @@ def handle_client(conn):
             print(f"[TCP] Dimensions recues : {width} x {height}")
 
         elif msg_type == 2:
-            data = recv_exact(conn, 4)
-            size = struct.unpack("<i", data)[0]
-            jpeg_data = recv_exact(conn, size)
+            header = recv_exact(conn, 12)
+            width, height, size = struct.unpack("<iii", header)
+            raw_data = recv_exact(conn, size)
             frame_count += 1
 
-            # Decoder le JPEG en cv2 Mat (BGR)
-            arr = np.frombuffer(jpeg_data, dtype=np.uint8)
-            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            # Reconstruire l'image RGBA brute
+            frame_rgba = np.frombuffer(raw_data, dtype=np.uint8).reshape((height, width, 4))
+            frame_bgr = cv2.cvtColor(frame_rgba, cv2.COLOR_RGBA2BGR)
 
-            if frame is not None:
-                with _frame_lock:
-                    _latest_frame = frame
-                    _latest_jpeg = jpeg_data
+            # Encoder en JPEG pour le flux MJPEG HTTP
+            _, jpeg_encoded = cv2.imencode('.jpg', frame_bgr)
+
+            with _frame_lock:
+                _latest_frame = frame_bgr
+                _latest_jpeg = jpeg_encoded.tobytes()
 
             if frame_count % 30 == 0:
-                print(f"[TCP] {frame_count} frames recues (derniere : {size} octets)")
+                print(f"[TCP] {frame_count} frames recues ({width}x{height}, {size} octets bruts)")
 
         else:
             print(f"[TCP] Type inconnu : {msg_type}, abandon")

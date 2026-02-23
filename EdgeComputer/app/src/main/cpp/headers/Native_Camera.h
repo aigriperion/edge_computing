@@ -64,6 +64,7 @@ private:
     ACaptureSessionOutput *m_session_output{};
     ACaptureSessionOutputContainer *m_capture_session_output_container{};
     ACameraCaptureSession *m_capture_session{};
+    ANativeWindow *m_image_reader_window{nullptr};
 
     ACameraDevice_StateCallbacks m_device_state_callbacks{};
     ACameraCaptureSession_stateCallbacks m_capture_session_state_callbacks{};

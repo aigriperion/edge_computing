@@ -52,6 +52,14 @@ Native_Camera::Native_Camera(camera_type type) {
 }
 
 Native_Camera::~Native_Camera() {
+    // 1. Stopper la capture en cours et fermer la session
+    if (m_capture_session != nullptr) {
+        ACameraCaptureSession_stopRepeating(m_capture_session);
+        ACameraCaptureSession_close(m_capture_session);
+        m_capture_session = nullptr;
+    }
+
+    // 2. Liberer la capture request et sa cible
     if (m_capture_request != nullptr) {
         ACaptureRequest_free(m_capture_request);
         m_capture_request = nullptr;
@@ -62,13 +70,17 @@ Native_Camera::~Native_Camera() {
         m_camera_output_target = nullptr;
     }
 
+    // 3. Fermer le device camera
     if (m_camera_device != nullptr) {
         ACameraDevice_close(m_camera_device);
         m_camera_device = nullptr;
     }
 
-    ACaptureSessionOutputContainer_remove(m_capture_session_output_container,
-                                          m_session_output);
+    // 4. Nettoyer le container de session output
+    if (m_capture_session_output_container != nullptr && m_session_output != nullptr) {
+        ACaptureSessionOutputContainer_remove(m_capture_session_output_container,
+                                              m_session_output);
+    }
     if (m_session_output != nullptr) {
         ACaptureSessionOutput_free(m_session_output);
         m_session_output = nullptr;
@@ -77,6 +89,12 @@ Native_Camera::~Native_Camera() {
     if (m_capture_session_output_container != nullptr) {
         ACaptureSessionOutputContainer_free(m_capture_session_output_container);
         m_capture_session_output_container = nullptr;
+    }
+
+    // 5. Relacher la window de l'ImageReader acquise dans CreateCaptureSession
+    if (m_image_reader_window != nullptr) {
+        ANativeWindow_release(m_image_reader_window);
+        m_image_reader_window = nullptr;
     }
 
     ACameraManager_delete(m_camera_manager);
@@ -163,6 +181,7 @@ bool Native_Camera::CreateCaptureSession(ANativeWindow *window) {
 
     ACaptureSessionOutputContainer_create(&m_capture_session_output_container);
     ANativeWindow_acquire(window);
+    m_image_reader_window = window;  // Garder la ref pour release dans le destructeur
     ACaptureSessionOutput_create(window, &m_session_output);
     ACaptureSessionOutputContainer_add(m_capture_session_output_container,
                                        m_session_output);

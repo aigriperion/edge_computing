@@ -13,17 +13,25 @@ CV_Manager::CV_Manager()
 }
 
 CV_Manager::~CV_Manager() {
+    // 1. D'abord stopper la camera (session + device) pour drainer le pipeline
     if (m_native_camera != nullptr) {
         delete m_native_camera;
         m_native_camera = nullptr;
     }
+    // 2. Puis l'image reader (ses buffers sont maintenant libres)
+    if (m_image_reader != nullptr) {
+        delete m_image_reader;
+        m_image_reader = nullptr;
+    }
+    // 3. La window d'affichage
     if (m_native_window != nullptr) {
         ANativeWindow_release(m_native_window);
         m_native_window = nullptr;
     }
-    if (m_image_reader != nullptr) {
-        delete m_image_reader;
-        m_image_reader = nullptr;
+    // 4. La socket TCP
+    if (m_Client != nullptr) {
+        delete m_Client;
+        m_Client = nullptr;
     }
 }
 

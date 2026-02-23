@@ -71,7 +71,7 @@ private:
     Scalar CV_GREEN = Scalar(0, 255, 0);
     Scalar CV_BLUE = Scalar(0, 0, 255);
     atomic_bool m_camera_thread_stopped{true};
-    SocketClient*     m_Client;
+    SocketClient*     m_Client{nullptr};
     thread m_loopThread;
 };
 

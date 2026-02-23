@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    ndkVersion = "17.2.4988734"
+    ndkVersion = "29.0.14206865"
     namespace = "com.example.edgecomputer"
     compileSdk {
         version = release(36) {
@@ -15,7 +15,7 @@ android {
         multiDexEnabled = true
         
         applicationId = "com.example.edgecomputer"
-        minSdk = 16
+        minSdk = 24
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
@@ -49,7 +49,6 @@ android {
 
 dependencies {
     implementation("com.github.pedroSG94.RootEncoder:library:2.6.7")
-    implementation("androidx.multidex:multidex:2.0.1")
 
     implementation(libs.appcompat)
     implementation(libs.material)

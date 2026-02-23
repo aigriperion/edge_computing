@@ -3,252 +3,200 @@ package com.example.edgecomputer;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
-import android.hardware.Sensor;
-import android.hardware.SensorEvent;
-import android.hardware.SensorEventListener;
-import android.hardware.SensorManager;
+import android.content.res.AssetManager;
+import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraManager;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import android.view.WindowInsetsController;
+import android.view.WindowInsets;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
-import com.pedro.common.ConnectChecker;
-import com.pedro.library.rtmp.RtmpCamera1;
+import com.example.edgecomputer.databinding.ActivityMainBinding;
 
-public class MainActivity extends AppCompatActivity implements
-        SensorEventListener,
-        ConnectChecker,
-        SurfaceHolder.Callback {
+public class MainActivity extends AppCompatActivity {
 
-    private static final String TAG = "EdgeRTMP";
-    private static final int REQ_PERMS = 1001;
+    // Chargement de la librairie native lors du démarrage de l'application
+    static {
+        System.loadLibrary("edgecomputer");
+    }
 
-    private static final String RTMP_URL = "rtmp://192.168.0.28:1935/live/stream";
+    private static final String TAG = "CameraNDK";
+    private static final int PERMISSION_REQUEST_CODE_CAMERA = 1;
 
-    // face up/down
-    private static final float FACE_THRESHOLD = 7.0f;
-    private boolean isFaceDown = false;
+    // Utilisation du View Binding pour éviter les findViewById
+    private ActivityMainBinding binding;
 
-    private SurfaceView surfaceView;
+    private boolean cameraRunning = false;
     private SurfaceHolder surfaceHolder;
 
-    private RtmpCamera1 rtmpCamera1;
-
-    private boolean permissionGranted = false;
-    private boolean surfaceReady = false;
-    private boolean started = false;
-
-    // Sensors
-    private SensorManager sensorManager;
-    private Sensor accelerometer;
+    // Méthodes natives
+    public native void scan();
+    public native void flipCamera();
+    public native void setSurface(Surface surface);
+    public native void release();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+        // Initialisation du binding
+        binding = ActivityMainBinding.inflate(getLayoutInflater());
+        setContentView(binding.getRoot());
 
-        surfaceView = findViewById(R.id.surface);
-        surfaceHolder = surfaceView.getHolder();
-        surfaceHolder.addCallback(this);
+        // Mode plein écran immersif
+        getWindow().setDecorFitsSystemWindows(false);
+        WindowInsetsController controller = getWindow().getInsetsController();
+        if (controller != null) {
+            controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
+            controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        }
 
-        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-
-        requestNeededPermissions();
-    }
-
-    private void requestNeededPermissions() {
-        String[] perms = new String[]{
+        // Définition des permissions requises
+        String[] requiredPermissions = {
                 Manifest.permission.CAMERA,
-                Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.INTERNET
+                Manifest.permission.INTERNET,
         };
 
-        boolean allGranted = true;
-        for (String p : perms) {
-            if (ActivityCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
-                allGranted = false;
-                break;
-            }
-        }
-
-        if (!allGranted) {
-            ActivityCompat.requestPermissions(this, perms, REQ_PERMS);
+        // Vérification des permissions
+        if (!hasPermissions(requiredPermissions)) {
+            ActivityCompat.requestPermissions(this, requiredPermissions, PERMISSION_REQUEST_CODE_CAMERA);
         } else {
-            permissionGranted = true;
-            tryStartStreaming();
+            initNativeComponents();
         }
     }
 
-    private void tryStartStreaming() {
-        if (started) return;
+    /**
+     * Méthode d'initialisation qui est appelée dès que toutes les permissions sont accordées.
+     * Elle configure le code natif, le SurfaceView, les listeners des boutons et affiche quelques infos sur la caméra.
+     */
+    private void initNativeComponents() {
+        // Configuration du SurfaceView et de son callback
+        SurfaceView surfaceView = binding.surfaceView;
+        surfaceHolder = surfaceView.getHolder();
+        surfaceHolder.addCallback(new SurfaceHolder.Callback() {
+            @Override
+            public void surfaceCreated(@NonNull SurfaceHolder holder) {
+                Log.v(TAG, "surfaceCreated");
+                // La caméra ne démarre pas automatiquement, on attend le bouton Start
+            }
 
-        if (!permissionGranted) {
-            Log.i(TAG, "Waiting for permissions...");
-            return;
-        }
-        if (!surfaceReady) {
-            Log.i(TAG, "Waiting for surface...");
-            return;
-        }
+            @Override
+            public void surfaceChanged(@NonNull SurfaceHolder holder, int format, int width, int height) {
+                Log.v(TAG, "surfaceChanged: format=" + format + ", width=" + width + ", height=" + height);
+            }
 
-        // Créer la caméra ICI (et pas dans onCreate)
-        if (rtmpCamera1 == null) {
-            try {
-                rtmpCamera1 = new RtmpCamera1(surfaceView, this);
-            } catch (RuntimeException e) {
-                Log.e(TAG, "Failed to init RtmpCamera1 (camera service)", e);
-                // Souvent: caméra déjà utilisée ou permission pas vraiment accordée
+            @Override
+            public void surfaceDestroyed(@NonNull SurfaceHolder holder) {
+                Log.v(TAG, "surfaceDestroyed");
+                if (cameraRunning) {
+                    release();
+                    cameraRunning = false;
+                    binding.startStopButton.setText("Start");
+                }
+            }
+        });
+
+        // Bouton Start/Stop
+        binding.startStopButton.setOnClickListener(v -> {
+            if (cameraRunning) {
+                release();
+                cameraRunning = false;
+                binding.startStopButton.setText("Start");
+            } else {
+                Surface surface = surfaceHolder.getSurface();
+                if (surface != null && surface.isValid()) {
+                    setSurface(surface);
+                    cameraRunning = true;
+                    binding.startStopButton.setText("Stop");
+                }
+            }
+        });
+
+        // Boutons Scan et Flip : protégés par cameraRunning
+        binding.scanButton.setOnClickListener(v -> {
+            if (!cameraRunning) {
+                Toast.makeText(this, "Démarrez la caméra d'abord", Toast.LENGTH_SHORT).show();
                 return;
             }
-        }
+            scan();
+        });
 
-        int width = 640;
-        int height = 480;
-        int fps = 20;
-        int bitrate = 1500 * 1024;
-        int rotation = 0;
+        binding.flipButton.setOnClickListener(v -> {
+            if (!cameraRunning) {
+                Toast.makeText(this, "Démarrez la caméra d'abord", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            flipCamera();
+        });
 
-        boolean preparedVideo = rtmpCamera1.prepareVideo(width, height, fps, bitrate, rotation);
-        if (!preparedVideo) {
-            Log.e(TAG, "prepareVideo failed");
-            return;
-        }
-
-        // Audio optionnel : commente si tu veux video-only
-        boolean preparedAudio = rtmpCamera1.prepareAudio();
-
-        Log.i(TAG, "Starting RTMP stream: " + RTMP_URL);
-        rtmpCamera1.startStream(RTMP_URL);
-        started = true;
-    }
-
-    private void stopStreaming() {
-        started = false;
-        if (rtmpCamera1 != null) {
-            if (rtmpCamera1.isStreaming()) rtmpCamera1.stopStream();
-            if (rtmpCamera1.isOnPreview()) rtmpCamera1.stopPreview();
-        }
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        if (accelerometer != null) {
-            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
+        // Affichage des informations sur les caméras disponibles
+        CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+        try {
+            for (String cameraId : manager.getCameraIdList()) {
+                CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
+                Log.d(TAG, "Camera ID: " + cameraId);
+                Log.d(TAG, "INFO_SUPPORTED_HARDWARE_LEVEL: " +
+                        characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL));
+                Log.d(TAG, "INFO_REQUIRED_HARDWARE_LEVEL FULL: " +
+                        CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL);
+                Log.d(TAG, "INFO_REQUIRED_HARDWARE_LEVEL 3: " +
+                        CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_3);
+                Log.d(TAG, "INFO_REQUIRED_HARDWARE_LEVEL LIMITED: " +
+                        CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED);
+                Log.d(TAG, "INFO_REQUIRED_HARDWARE_LEVEL LEGACY: " +
+                        CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY);
+            }
+        } catch (CameraAccessException e) {
+            Log.e(TAG, "Erreur d'accès à la caméra", e);
         }
     }
 
-    @Override
-    protected void onPause() {
-        super.onPause();
-        sensorManager.unregisterListener(this);
-        stopStreaming();
+    /**
+     * Vérifie que toutes les permissions spécifiées sont accordées.
+     */
+    private boolean hasPermissions(String[] permissions) {
+        for (String permission : permissions) {
+            if (ContextCompat.checkSelfPermission(this, permission)
+                    != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+        }
+        return true;
     }
 
-    // Surface callbacks
-    @Override
-    public void surfaceCreated(@NonNull SurfaceHolder holder) {
-        surfaceReady = true;
-        Log.i(TAG, "surfaceCreated");
-        tryStartStreaming();
-    }
-
-    @Override
-    public void surfaceDestroyed(@NonNull SurfaceHolder holder) {
-        surfaceReady = false;
-        Log.i(TAG, "surfaceDestroyed");
-        stopStreaming();
-    }
-
-    @Override
-    public void surfaceChanged(@NonNull SurfaceHolder holder, int format, int width, int height) {
-        // nothing
-    }
-
-    // Permissions runtime
+    /**
+     * Gestion de la réponse à la demande de permissions.
+     */
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
                                            @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-
-        if (requestCode == REQ_PERMS) {
-            boolean ok = true;
-            for (int g : grantResults) ok &= (g == PackageManager.PERMISSION_GRANTED);
-            permissionGranted = ok;
-
-            Log.i(TAG, "Permissions granted=" + permissionGranted);
-            if (permissionGranted) tryStartStreaming();
+        if (requestCode == PERMISSION_REQUEST_CODE_CAMERA) {
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+            if (allGranted) {
+                initNativeComponents();
+            } else {
+                Toast.makeText(this,
+                        "Les permissions sont nécessaires pour le bon fonctionnement de l'application.",
+                        Toast.LENGTH_LONG).show();
+                finish();
+            }
+        } else {
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         }
-    }
-
-    // Accelerometer -> switch cam
-    @Override
-    public void onSensorChanged(SensorEvent event) {
-        if (event.sensor.getType() != Sensor.TYPE_ACCELEROMETER) return;
-
-        float z = event.values[2];
-        boolean faceDownNow = (z < -FACE_THRESHOLD);
-        boolean faceUpNow = (z > FACE_THRESHOLD);
-
-        if (faceDownNow && !isFaceDown) {
-            isFaceDown = true;
-            switchCamera();
-        } else if (faceUpNow && isFaceDown) {
-            isFaceDown = false;
-            switchCamera();
-        }
-    }
-
-    private void switchCamera() {
-        if (rtmpCamera1 == null) return;
-        try {
-            rtmpCamera1.switchCamera();
-            Log.i(TAG, "Camera switched");
-        } catch (Exception e) {
-            Log.e(TAG, "switchCamera failed", e);
-        }
-    }
-
-    @Override
-    public void onAccuracyChanged(Sensor sensor, int accuracy) { }
-
-    // ConnectChecker callbacks
-    @Override
-    public void onConnectionStarted(String url) {
-        Log.i(TAG, "Connection started: " + url);
-    }
-
-    @Override
-    public void onConnectionSuccess() {
-        Log.i(TAG, "Connection success");
-    }
-
-    @Override
-    public void onConnectionFailed(String reason) {
-        Log.e(TAG, "Connection failed: " + reason);
-        stopStreaming();
-    }
-
-    @Override
-    public void onNewBitrate(long bitrate) { }
-
-    @Override
-    public void onDisconnect() {
-        Log.i(TAG, "Disconnected");
-    }
-
-    @Override
-    public void onAuthError() {
-        Log.e(TAG, "Auth error");
-    }
-
-    @Override
-    public void onAuthSuccess() {
-        Log.i(TAG, "Auth success");
     }
 }

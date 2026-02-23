@@ -1,17 +1,3 @@
-"""
-Serveur de réception du flux vidéo de l'application Android EdgeComputer.
-
-Protocole TCP (little-endian) :
-  type=1 : 1 octet + int32 width + int32 height   (dimensions)
-  type=2 : 1 octet + int32 size  + size octets     (frame JPEG)
-
-Utilisation :
-  1) pip install -r requirements.txt
-  2) Lancer :  python server.py
-  3) Lancer l'app Android (elle se connecte en TCP sur le port 9999)
-  4) Ouvrir VLC -> Media -> Flux reseau -> http://IP_DU_PC:8080
-"""
-
 import socket
 import struct
 import threading
@@ -24,9 +10,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 TCP_PORT = 9999
 HTTP_PORT = 8080
 
-# Derniere frame decodee (cv2 Mat) et sa version JPEG pour le stream HTTP
-_latest_frame = None      # numpy array BGR
-_latest_jpeg = None       # bytes JPEG pour le flux HTTP
+_latest_frame = None
+_latest_jpeg = None
 _frame_lock = threading.Lock()
 
 

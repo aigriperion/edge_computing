@@ -85,10 +85,14 @@ void CV_Manager::CameraLoop() {
         m_image_reader->DisplayImage(&buffer, m_image);
         display_mat = Mat(buffer.height, buffer.stride, CV_8UC4, buffer.bits);
         //BarcodeDetect(display_mat);
+        Mat send_mat;
         if (m_Client) {
-            m_Client->SendImage(display_mat);
+            send_mat = display_mat.clone(); // copie avant unlock, buffer.bits sera invalide après
         }
         ANativeWindow_unlockAndPost(m_native_window);
+        if (m_Client) {
+            m_Client->SendImage(send_mat); // cvtColor + imencode + TCP hors du lock
+        }
         ReleaseMats();
     }
     LOGI("CameraLoop exited cleanly");
@@ -169,8 +173,8 @@ void CV_Manager::FlipCamera() {
 void CV_Manager::SetUpTCP()
 {
 
-    const char hostname[] = "192.168.137.147";//"localhost";//192.168.137.
-    int port = 5005;
+    const char hostname[] = "172.16.81.179";
+    int port = 9999;
 
     SocketClient* client =new SocketClient(hostname, port);
 

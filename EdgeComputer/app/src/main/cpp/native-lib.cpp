@@ -97,6 +97,9 @@ Java_com_example_edgecomputer_MainActivity_setSurface(
     // Setup camera (Native_Camera + Image_Reader + capture session)
     gCv->SetUpCamera();
 
+    // Connexion TCP au serveur
+    gCv->SetUpTCP();
+
     // Lance la loop (lock window, DisplayImage, Mat buffer, etc.)
     startCameraThreadIfNeeded();
 }

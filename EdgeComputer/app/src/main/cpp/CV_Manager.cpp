@@ -95,8 +95,12 @@ void CV_Manager::CameraLoop() {
             LOGI("/// H-W-S-F: %d, %d, %d, %d", buffer.height, buffer.width, buffer.stride, buffer.format);
         }
 
+        int64_t timestamp_ns = 0;
+        AImage_getTimestamp(m_image, &timestamp_ns);
+
         m_image_reader->DisplayImage(&buffer, m_image);
-        display_mat = Mat(buffer.height, buffer.stride, CV_8UC4, buffer.bits);
+        Mat full_mat(buffer.height, buffer.stride, CV_8UC4, buffer.bits);
+        display_mat = full_mat(Rect(0, 0, buffer.width, buffer.height));
         //BarcodeDetect(display_mat);
         Mat send_mat;
         if (m_Client && m_encoder) {
@@ -105,12 +109,18 @@ void CV_Manager::CameraLoop() {
         ANativeWindow_unlockAndPost(m_native_window);
         if (m_Client && m_encoder) {
             std::vector<H264Chunk> chunks;
-            m_encoder->Encode(send_mat, chunks);
+            m_encoder->Encode(send_mat, chunks, timestamp_ns / 1000);
             for (const auto& chunk : chunks) {
+                bool ok;
                 if (chunk.isConfig) {
-                    m_Client->SendH264Config(chunk.data.data(), chunk.data.size());
+                    ok = m_Client->SendH264Config(chunk.data.data(), chunk.data.size());
                 } else {
-                    m_Client->SendH264Frame(chunk.data.data(), chunk.data.size());
+                    ok = m_Client->SendH264Frame(chunk.data.data(), chunk.data.size());
+                }
+                if (!ok) {
+                    LOGE("TCP send failed, closing connection");
+                    m_Client->Close();
+                    break;
                 }
             }
         }
@@ -193,16 +203,26 @@ void CV_Manager::FlipCamera() {
 }
 void CV_Manager::SetUpTCP()
 {
-    const char hostname[] = "172.16.81.179";
+    const char hostname[] = "172.16.80.231";
     int port = 9999;
+
+    int encW = m_view.width;
+    int encH = m_view.height;
+    if (encW > 640) {
+        encH = encH * 640 / encW;
+        encW = 640;
+    }
+    // Aligner sur 2 (requis par H.264)
+    encW &= ~1;
+    encH &= ~1;
 
     SocketClient* client = new SocketClient(hostname, port);
     client->ConnectToServer();
-    client->SendImageDims(640, 480);
+    client->SendImageDims(encW, encH);
     setSocketClient(client);
 
     m_encoder = new H264Encoder();
-    m_encoder->Init(640, 480, 2000000, 30);
+    m_encoder->Init(encW, encH, 2000000, 30);
 }
 void CV_Manager::setSocketClient(SocketClient *client)
 {

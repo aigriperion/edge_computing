@@ -22,7 +22,7 @@ public:
     ~H264Encoder();
 
     bool Init(int width, int height, int bitrate, int fps);
-    bool Encode(const cv::Mat& rgba, std::vector<H264Chunk>& out);
+    bool Encode(const cv::Mat& bgra, std::vector<H264Chunk>& out, int64_t timestampUs);
     void Stop();
 
 private:
@@ -32,7 +32,7 @@ private:
     int width_ = 0;
     int height_ = 0;
     int fps_ = 30;
-    int64_t frameIndex_ = 0;
+    int64_t basePts_ = -1;
 };
 
 #endif //EDGECOMPUTER_H264ENCODER_H

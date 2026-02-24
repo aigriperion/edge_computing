@@ -7,6 +7,7 @@
 
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <netinet/tcp.h>
 #include <unistd.h>
 #include <errno.h>
 #include <cstring>
@@ -50,6 +51,9 @@ bool SocketClient::ConnectToServer() {
         return false;
     }
 
+    int flag = 1;
+    setsockopt(sock_, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+
     LOGI("Connected to %s:%d", host_.c_str(), port_);
     return true;
 }
@@ -69,43 +73,41 @@ bool SocketClient::sendAll(const void* data, size_t len) {
 }
 
 // Protocole :
-// type=1 -> dims      : [0x01][width:i32LE][height:i32LE]
-// type=2 -> H.264 frame : [0x02][size:i32LE][h264_annex_b_data]
-// type=3 -> H.264 config (SPS/PPS) : [0x03][size:i32LE][sps_pps_annex_b_data]
+// [0xED][0x9E][type:1B][size:4B LE][payload:size B]
+// type=1 -> dims      : payload = [width:4B][height:4B], size = 8
+// type=2 -> H.264 frame : payload = h264_annex_b_data
+// type=3 -> H.264 config (SPS/PPS) : payload = sps_pps_annex_b_data
 
-bool SocketClient::SendImageDims(int width, int height) {
+bool SocketClient::sendMessage(uint8_t type, const void* payload, size_t size) {
     if (sock_ < 0) return false;
 
-    uint8_t type = 1;
-    int32_t w = width;
-    int32_t h = height;
+    uint8_t header[7];
+    header[0] = TCP_MAGIC_0;
+    header[1] = TCP_MAGIC_1;
+    header[2] = type;
+    uint32_t sz = (uint32_t)size;
+    memcpy(&header[3], &sz, sizeof(sz));
 
-    if (!sendAll(&type, 1)) return false;
-    if (!sendAll(&w, sizeof(w))) return false;
-    if (!sendAll(&h, sizeof(h))) return false;
+    if (!sendAll(header, sizeof(header))) {
+        LOGE("sendMessage: header send failed (type=%d)", type);
+        return false;
+    }
+    if (size > 0 && !sendAll(payload, size)) {
+        LOGE("sendMessage: payload send failed (type=%d, size=%zu)", type, size);
+        return false;
+    }
     return true;
+}
+
+bool SocketClient::SendImageDims(int width, int height) {
+    int32_t dims[2] = { width, height };
+    return sendMessage(1, dims, sizeof(dims));
 }
 
 bool SocketClient::SendH264Config(const uint8_t* data, size_t size) {
-    if (sock_ < 0) return false;
-
-    uint8_t type = 3;
-    int32_t sz = (int32_t)size;
-
-    if (!sendAll(&type, 1)) return false;
-    if (!sendAll(&sz, sizeof(sz))) return false;
-    if (!sendAll(data, size)) return false;
-    return true;
+    return sendMessage(3, data, size);
 }
 
 bool SocketClient::SendH264Frame(const uint8_t* data, size_t size) {
-    if (sock_ < 0) return false;
-
-    uint8_t type = 2;
-    int32_t sz = (int32_t)size;
-
-    if (!sendAll(&type, 1)) return false;
-    if (!sendAll(&sz, sizeof(sz))) return false;
-    if (!sendAll(data, size)) return false;
-    return true;
+    return sendMessage(2, data, size);
 }

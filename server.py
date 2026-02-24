@@ -7,6 +7,11 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 TCP_PORT = 9999
 HTTP_PORT = 8080
 
+# Magic bytes du protocole
+MAGIC_0 = 0xED
+MAGIC_1 = 0x9E
+MAX_PAYLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
+
 # SPS/PPS config stockee globalement pour les nouveaux clients HTTP
 _config_data = None
 _config_lock = threading.Lock()
@@ -78,24 +83,61 @@ def tcp_receiver():
             print(f"[TCP] Connexion fermee, en attente d'une nouvelle ...")
 
 
+def resync(conn):
+    """Tente de resynchroniser le flux en scannant les magic bytes."""
+    print("[TCP] Desync detecte, tentative de resynchronisation ...")
+    skipped = 0
+    prev = b'\x00'
+    while True:
+        b = recv_exact(conn, 1)
+        if prev[0] == MAGIC_0 and b[0] == MAGIC_1:
+            print(f"[TCP] Resynchronise apres {skipped} octets ignores")
+            return True
+        prev = b
+        skipped += 1
+        if skipped > MAX_PAYLOAD_SIZE:
+            print("[TCP] Impossible de resynchroniser, abandon")
+            return False
+
+
 def handle_client(conn):
     global _config_data
     frame_count = 0
 
     while True:
-        type_byte = recv_exact(conn, 1)
-        msg_type = type_byte[0]
+        # Lire magic bytes
+        magic = recv_exact(conn, 2)
+        if magic[0] != MAGIC_0 or magic[1] != MAGIC_1:
+            print(f"[TCP] Magic invalide : 0x{magic[0]:02X} 0x{magic[1]:02X}")
+            if not resync(conn):
+                break
+            # Apres resync, on a deja consomme les magic bytes
+            # On continue pour lire type + size + payload
+
+        # Lire type (1 octet) + size (4 octets LE)
+        header = recv_exact(conn, 5)
+        msg_type = header[0]
+        size = struct.unpack("<I", header[1:5])[0]
+
+        # Validation de la taille
+        if size > MAX_PAYLOAD_SIZE:
+            print(f"[TCP] Taille invalide : {size} octets (max {MAX_PAYLOAD_SIZE}), abandon")
+            break
 
         if msg_type == 1:
-            # Dimensions
-            data = recv_exact(conn, 8)
+            # Dimensions : payload = 8 octets
+            if size != 8:
+                print(f"[TCP] Taille dims invalide : {size} (attendu 8)")
+                break
+            data = recv_exact(conn, size)
             width, height = struct.unpack("<ii", data)
             print(f"[TCP] Dimensions recues : {width} x {height}")
 
         elif msg_type == 3:
             # H.264 config (SPS/PPS)
-            data = recv_exact(conn, 4)
-            size = struct.unpack("<i", data)[0]
+            if size == 0:
+                print("[TCP] Config vide, ignore")
+                continue
             config = recv_exact(conn, size)
 
             with _config_lock:
@@ -106,8 +148,8 @@ def handle_client(conn):
 
         elif msg_type == 2:
             # H.264 frame data
-            data = recv_exact(conn, 4)
-            size = struct.unpack("<i", data)[0]
+            if size == 0:
+                continue
             frame_data = recv_exact(conn, size)
 
             publish(frame_data)

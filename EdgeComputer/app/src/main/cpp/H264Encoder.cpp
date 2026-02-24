@@ -16,7 +16,7 @@ bool H264Encoder::Init(int width, int height, int bitrate, int fps) {
     width_ = width;
     height_ = height;
     fps_ = fps;
-    frameIndex_ = 0;
+    basePts_ = -1;
 
     codec_ = AMediaCodec_createEncoderByType("video/avc");
     if (!codec_) {
@@ -56,20 +56,20 @@ bool H264Encoder::Init(int width, int height, int bitrate, int fps) {
     return true;
 }
 
-bool H264Encoder::Encode(const cv::Mat& rgba, std::vector<H264Chunk>& out) {
+bool H264Encoder::Encode(const cv::Mat& bgra, std::vector<H264Chunk>& out, int64_t timestampUs) {
     if (!codec_) return false;
 
     out.clear();
 
     // Resize if needed
-    cv::Mat input = rgba;
-    if (rgba.cols != width_ || rgba.rows != height_) {
-        cv::resize(rgba, input, cv::Size(width_, height_));
+    cv::Mat input = bgra;
+    if (bgra.cols != width_ || bgra.rows != height_) {
+        cv::resize(bgra, input, cv::Size(width_, height_));
     }
 
     // RGBA -> I420 (YUV420p)
     cv::Mat yuv_i420;
-    cv::cvtColor(input, yuv_i420, cv::COLOR_RGBA2YUV_I420);
+    cv::cvtColor(input, yuv_i420, cv::COLOR_BGRA2YUV_I420);
 
     // Prepare NV12 buffer: Y plane + interleaved UV
     int ySize = width_ * height_;
@@ -107,9 +107,9 @@ bool H264Encoder::Encode(const cv::Mat& rgba, std::vector<H264Chunk>& out) {
         uvDst[2 * i + 1] = vPlane[i];
     }
 
-    // Compute PTS in microseconds
-    int64_t pts = (frameIndex_ * 1000000LL) / fps_;
-    frameIndex_++;
+    // Compute PTS from real camera timestamp
+    if (basePts_ < 0) basePts_ = timestampUs;
+    int64_t pts = timestampUs - basePts_;
 
     AMediaCodec_queueInputBuffer(codec_, inIdx, 0, totalSize, pts, 0);
 

@@ -9,6 +9,10 @@
 #include <string>
 #include <cstdint>
 
+// Magic bytes pour le protocole TCP
+static constexpr uint8_t TCP_MAGIC_0 = 0xED;
+static constexpr uint8_t TCP_MAGIC_1 = 0x9E;
+
 class SocketClient {
 public:
     SocketClient(const std::string& host, int port);
@@ -27,6 +31,7 @@ public:
 
 private:
     bool sendAll(const void* data, size_t len);
+    bool sendMessage(uint8_t type, const void* payload, size_t size);
 
 private:
     std::string host_;

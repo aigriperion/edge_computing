@@ -39,7 +39,7 @@ public class WebRtcClient {
     private static final String TAG = "WebRtcClient";
 
     // ── Changer cette IP selon l'adresse du serveur de signalisation ──────────
-    public static String SERVER_URL = "ws://192.168.1.100:3000";
+    public static String SERVER_URL = "ws://192.168.1.115:3000";
     // ──────────────────────────────────────────────────────────────────────────
 
     private static final List<PeerConnection.IceServer> ICE_SERVERS = Arrays.asList(

@@ -2,6 +2,9 @@
 // Created by ladiaviakoye on 22/03/2026.
 //
 #include "CV_Manager.h"
+#include <opencv2/imgproc.hpp>
+#include <sstream>
+#include <iomanip>
 
 using namespace std;
 using namespace cv;
@@ -133,6 +136,54 @@ void CV_Manager::CameraLoop() {
                 buffer.stride * 4
         );
 
+        if (m_gps_valid) {
+            double lat, lon, alt;
+            float acc;
+            {
+                std::lock_guard<std::mutex> lock(m_gps_mutex);
+                lat = m_gps_lat;
+                lon = m_gps_lon;
+                alt = m_gps_alt;
+                acc = m_gps_acc;
+            }
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(6)
+                << "Lat: " << lat << "  Lon: " << lon;
+            std::string line1 = oss.str();
+
+            oss.str("");
+            oss << std::fixed << std::setprecision(1)
+                << "Alt: " << alt << " m  Acc: " << acc << " m";
+            std::string line2 = oss.str();
+
+            double fontScale = display_mat.rows / 720.0;
+            int thickness = std::max(1, (int)(fontScale * 2));
+            int baseline = 0;
+            Size sz = getTextSize(line1, FONT_HERSHEY_SIMPLEX, fontScale, thickness, &baseline);
+            int margin = 16;
+            int lineH = sz.height + baseline + 8;
+
+            // Fond semi-transparent noir
+            Rect bg(margin - 4, margin - sz.height - 4,
+                    std::max(
+                        (int)getTextSize(line1, FONT_HERSHEY_SIMPLEX, fontScale, thickness, &baseline).width,
+                        (int)getTextSize(line2, FONT_HERSHEY_SIMPLEX, fontScale, thickness, &baseline).width
+                    ) + 8,
+                    lineH * 2 + 8);
+            bg &= Rect(0, 0, display_mat.cols, display_mat.rows);
+            display_mat(bg) *= 0.4;
+
+            Scalar white(255, 255, 255, 255);
+            putText(display_mat, line1, Point(margin, margin + lineH * 0),
+                    FONT_HERSHEY_SIMPLEX, fontScale, Scalar(0,0,0,255), thickness + 2);
+            putText(display_mat, line1, Point(margin, margin + lineH * 0),
+                    FONT_HERSHEY_SIMPLEX, fontScale, white, thickness);
+            putText(display_mat, line2, Point(margin, margin + lineH * 1),
+                    FONT_HERSHEY_SIMPLEX, fontScale, Scalar(0,0,0,255), thickness + 2);
+            putText(display_mat, line2, Point(margin, margin + lineH * 1),
+                    FONT_HERSHEY_SIMPLEX, fontScale, white, thickness);
+        }
+
         ANativeWindow_unlockAndPost(m_native_window);
         ANativeWindow_release(m_native_window);
 
@@ -194,6 +245,15 @@ void CV_Manager::FlipCamera() {
 
     SetUpCamera();
     StartCameraLoop();
+}
+
+void CV_Manager::SetGpsData(double lat, double lon, double alt, float accuracy) {
+    std::lock_guard<std::mutex> lock(m_gps_mutex);
+    m_gps_lat = lat;
+    m_gps_lon = lon;
+    m_gps_alt = alt;
+    m_gps_acc = accuracy;
+    m_gps_valid = true;
 }
 
 void CV_Manager::ReleaseMats() {

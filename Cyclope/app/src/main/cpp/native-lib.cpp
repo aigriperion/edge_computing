@@ -28,6 +28,14 @@ Java_com_example_cyclope_MainActivity_flipCamera(JNIEnv *env, jobject thiz) {
 
 extern "C"
 JNIEXPORT void JNICALL
+Java_com_example_cyclope_MainActivity_setGpsData(
+        JNIEnv *env, jobject thiz,
+        jdouble lat, jdouble lon, jdouble alt, jfloat accuracy) {
+    app.SetGpsData((double)lat, (double)lon, (double)alt, (float)accuracy);
+}
+
+extern "C"
+JNIEXPORT void JNICALL
 Java_com_example_cyclope_MainActivity_setSurface(JNIEnv *env, jobject thiz, jobject surface) {
     LOGD("setSurface() called");
 

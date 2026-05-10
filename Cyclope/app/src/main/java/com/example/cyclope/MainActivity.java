@@ -6,6 +6,9 @@ import android.content.pm.PackageManager;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Surface;
@@ -32,10 +35,14 @@ public class MainActivity extends AppCompatActivity {
     private ActivityMainBinding binding;
     private boolean nativeInitialized = false;
 
+    private LocationManager locationManager;
+    private LocationListener locationListener;
+
     // Méthodes natives
     public native void scan();
     public native void flipCamera();
     public native void setSurface(Surface surface);
+    public native void setGpsData(double lat, double lon, double alt, float accuracy);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -45,7 +52,8 @@ public class MainActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
 
         String[] requiredPermissions = {
-                Manifest.permission.CAMERA
+                Manifest.permission.CAMERA,
+                Manifest.permission.ACCESS_FINE_LOCATION,
         };
 
         if (!hasPermissions(requiredPermissions)) {
@@ -129,7 +137,46 @@ public class MainActivity extends AppCompatActivity {
             flipCamera();
         });
 
+        setupGps();
         logAvailableCameras();
+    }
+
+    private void setupGps() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            Log.w(TAG, "GPS: permission ACCESS_FINE_LOCATION non accordée");
+            return;
+        }
+
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        locationListener = new LocationListener() {
+            @Override
+            public void onLocationChanged(@NonNull Location location) {
+                setGpsData(
+                        location.getLatitude(),
+                        location.getLongitude(),
+                        location.getAltitude(),
+                        location.getAccuracy()
+                );
+            }
+        };
+
+        if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+            locationManager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER, 1000, 0f, locationListener);
+        }
+        if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+            locationManager.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER, 1000, 0f, locationListener);
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (locationManager != null && locationListener != null) {
+            locationManager.removeUpdates(locationListener);
+        }
     }
 
     /**

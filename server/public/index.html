@@ -17,6 +17,8 @@
     --yellow: #ffd740;
     --text: #e0e0e0;
     --muted: #666;
+    --hover: #1e1e1e;
+    --selected: #1a2a2a;
   }
 
   body {
@@ -27,11 +29,11 @@
     height: 100dvh;
     display: grid;
     grid-template-rows: 48px 1fr 36px;
-    grid-template-columns: 1fr 280px;
+    grid-template-columns: 220px 1fr 280px;
     grid-template-areas:
-      "header header"
-      "video  panel"
-      "footer footer";
+      "header header header"
+      "devices video  panel"
+      "footer  footer footer";
     overflow: hidden;
   }
 
@@ -61,8 +63,102 @@
   .dot.ok   { background: var(--green); box-shadow: 0 0 6px var(--green); }
   .dot.warn { background: var(--yellow); }
   .dot.err  { background: var(--red); }
-
   .spacer { flex: 1; }
+  .btn {
+    padding: 6px 12px;
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 4px;
+    letter-spacing: 1px;
+    transition: background .2s;
+  }
+  .btn:hover:not(:disabled) { background: rgba(0,229,255,.1); }
+  .btn:disabled { opacity: .3; cursor: default; border-color: var(--muted); color: var(--muted); }
+
+  /* ── DEVICE LIST ── */
+  .devices-panel {
+    grid-area: devices;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .devices-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .device-count {
+    background: var(--accent);
+    color: #000;
+    border-radius: 10px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: bold;
+  }
+  .devices-list {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .device-card {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background .15s;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .device-card:hover { background: var(--hover); }
+  .device-card.selected { background: var(--selected); border-left: 3px solid var(--accent); }
+  .device-card.offline { opacity: .4; cursor: default; }
+  .device-name {
+    font-size: 12px;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .device-id {
+    font-size: 10px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .device-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .device-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+  }
+  .device-dot.online { background: var(--green); box-shadow: 0 0 4px var(--green); }
+  .device-dot.streaming { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+
+  .no-devices {
+    padding: 24px 14px;
+    color: var(--muted);
+    font-size: 11px;
+    text-align: center;
+    line-height: 1.6;
+  }
 
   /* ── VIDEO ── */
   .video-area {
@@ -84,8 +180,20 @@
     font-size: 14px;
     letter-spacing: 1px;
     text-align: center;
+    pointer-events: none;
   }
   .overlay-msg span { display: block; font-size: 28px; margin-bottom: 8px; }
+  .video-label {
+    position: absolute;
+    top: 10px; left: 10px;
+    background: rgba(0,0,0,.6);
+    color: var(--accent);
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    letter-spacing: 1px;
+    pointer-events: none;
+  }
 
   /* ── SIDE PANEL ── */
   aside {
@@ -112,15 +220,12 @@
   .kv .v { color: var(--accent); font-weight: bold; }
   .kv .v.green { color: var(--green); }
   .kv .v.red   { color: var(--red); }
-  .kv .v.yellow { color: var(--yellow); }
-
   .coord-big {
     font-size: 15px;
     color: var(--accent);
     margin-bottom: 4px;
     word-break: break-all;
   }
-
   .maps-link {
     display: inline-block;
     margin-top: 6px;
@@ -134,8 +239,6 @@
     transition: opacity .2s;
   }
   .maps-link:hover { opacity: 1; }
-  #maps-link-el { display: none; }
-
   .log-area {
     flex: 1;
     padding: 10px 14px;
@@ -143,12 +246,7 @@
     display: flex;
     flex-direction: column-reverse;
   }
-  .log-line {
-    font-size: 11px;
-    color: var(--muted);
-    margin-bottom: 3px;
-    opacity: .8;
-  }
+  .log-line { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
   .log-line.info  { color: var(--text); }
   .log-line.ok    { color: var(--green); }
   .log-line.error { color: var(--red); }
@@ -166,22 +264,6 @@
     color: var(--muted);
   }
   footer .sep { color: var(--border); }
-
-  /* ── BUTTONS ── */
-  .btn {
-    margin-top: 8px;
-    padding: 6px 12px;
-    background: transparent;
-    border: 1px solid var(--accent);
-    color: var(--accent);
-    font-family: inherit;
-    font-size: 11px;
-    cursor: pointer;
-    border-radius: 4px;
-    letter-spacing: 1px;
-    transition: background .2s;
-  }
-  .btn:hover { background: rgba(0,229,255,.1); }
 </style>
 </head>
 <body>
@@ -192,14 +274,24 @@
   <div class="status-pill"><div class="dot" id="dot-rtc"></div><span id="lbl-rtc">WebRTC</span></div>
   <div class="status-pill"><div class="dot" id="dot-gps"></div><span id="lbl-gps">GPS</span></div>
   <div class="spacer"></div>
+  <button class="btn" id="btn-flip" disabled>⟳ Flip</button>
   <button class="btn" id="btn-connect">Connecter</button>
 </header>
 
+<div class="devices-panel">
+  <div class="devices-header">
+    <span>Appareils</span>
+    <span class="device-count" id="device-count">0</span>
+  </div>
+  <div class="devices-list" id="devices-list">
+    <div class="no-devices">Aucun appareil<br>connecté</div>
+  </div>
+</div>
+
 <div class="video-area">
   <video id="video" autoplay playsinline muted></video>
-  <div class="overlay-msg" id="overlay">
-    <span>◉</span>En attente du flux Android…
-  </div>
+  <div class="video-label" id="video-label" style="display:none"></div>
+  <div class="overlay-msg" id="overlay"><span>◉</span>Sélectionne un appareil</div>
 </div>
 
 <aside>
@@ -209,20 +301,16 @@
     <div class="coord-big" id="gps-lon">—</div>
     <div class="kv"><span class="k">Altitude</span><span class="v" id="gps-alt">—</span></div>
     <div class="kv"><span class="k">Précision</span><span class="v" id="gps-acc">—</span></div>
-    <a class="maps-link" id="maps-link-el" target="_blank">↗ Voir sur Maps</a>
+    <a class="maps-link" id="maps-link-el" target="_blank" style="display:none">↗ Voir sur Maps</a>
   </div>
-
   <div class="section">
     <div class="section-title">WebRTC</div>
-    <div class="kv"><span class="k">État ICE</span><span class="v" id="ice-state">—</span></div>
-    <div class="kv"><span class="k">Signalisation</span><span class="v" id="sig-state">—</span></div>
+    <div class="kv"><span class="k">Appareil</span><span class="v" id="info-device">—</span></div>
+    <div class="kv"><span class="k">ICE</span><span class="v" id="ice-state">—</span></div>
     <div class="kv"><span class="k">Vidéo</span><span class="v" id="video-info">—</span></div>
     <div class="kv"><span class="k">Audio</span><span class="v" id="audio-info">—</span></div>
   </div>
-
-  <div class="section">
-    <div class="section-title">Journal</div>
-  </div>
+  <div class="section"><div class="section-title">Journal</div></div>
   <div class="log-area" id="log"></div>
 </aside>
 
@@ -231,11 +319,10 @@
   <span class="sep">|</span>
   <span>ws://<span id="footer-host">—</span></span>
   <span class="sep">|</span>
-  <span id="footer-peers">0 pair(s)</span>
+  <span id="footer-peers">0 appareil(s)</span>
 </footer>
 
 <script>
-// ─── Configuration ────────────────────────────────────────────────────────────
 const ICE_SERVERS = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
@@ -243,13 +330,17 @@ const ICE_SERVERS = [
 
 // ─── État global ──────────────────────────────────────────────────────────────
 let ws = null;
-let pc = null;
 let connected = false;
+let selectedId = null;
+
+// Map<deviceId, { name, pc, stream, telemetry, iceState }>
+const devices = new Map();
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
-const videoEl      = document.getElementById('video');
-const overlay      = document.getElementById('overlay');
-const btnConnect   = document.getElementById('btn-connect');
+const videoEl    = document.getElementById('video');
+const overlay    = document.getElementById('overlay');
+const btnFlip    = document.getElementById('btn-flip');
+const btnConnect = document.getElementById('btn-connect');
 
 // ─── Logs ─────────────────────────────────────────────────────────────────────
 function log(msg, level = 'info') {
@@ -257,18 +348,97 @@ function log(msg, level = 'info') {
     el.className = `log-line ${level}`;
     const t = new Date().toISOString().substring(11, 23);
     el.textContent = `[${t}] ${msg}`;
-    document.getElementById('log').prepend(el);
-    if (document.getElementById('log').children.length > 80) {
-        document.getElementById('log').lastElementChild.remove();
-    }
+    const logEl = document.getElementById('log');
+    logEl.prepend(el);
+    if (logEl.children.length > 100) logEl.lastElementChild.remove();
 }
 
-// ─── Status pills ─────────────────────────────────────────────────────────────
 function setDot(id, state, label) {
     const dot = document.getElementById(`dot-${id}`);
     const lbl = document.getElementById(`lbl-${id}`);
-    dot.className = 'dot ' + (state === 'ok' ? 'ok' : state === 'warn' ? 'warn' : state === 'err' ? 'err' : '');
-    if (label) lbl.textContent = label;
+    if (dot) dot.className = 'dot ' + ({ok:'ok',warn:'warn',err:'err'}[state] || '');
+    if (lbl && label) lbl.textContent = label;
+}
+
+// ─── Device list UI ───────────────────────────────────────────────────────────
+function renderDevices() {
+    const list = document.getElementById('devices-list');
+    const count = document.getElementById('device-count');
+    count.textContent = devices.size;
+
+    if (devices.size === 0) {
+        list.innerHTML = '<div class="no-devices">Aucun appareil<br>connecté</div>';
+        return;
+    }
+
+    list.innerHTML = '';
+    devices.forEach((dev, id) => {
+        const card = document.createElement('div');
+        card.className = 'device-card' +
+            (id === selectedId ? ' selected' : '') +
+            (dev.offline ? ' offline' : '');
+        card.dataset.id = id;
+
+        const dotClass = dev.offline ? '' : (dev.pc ? 'streaming' : 'online');
+        card.innerHTML = `
+            <div class="device-name">${dev.name}</div>
+            <div class="device-id">${id.substring(0, 16)}…</div>
+            <div class="device-meta">
+                <div class="device-dot ${dotClass}"></div>
+                <span>${dev.offline ? 'Hors ligne' : (dev.pc ? 'Streaming' : 'Connecté')}</span>
+                ${dev.telemetry ? `<span>· GPS ✓</span>` : ''}
+            </div>`;
+
+        if (!dev.offline) {
+            card.addEventListener('click', () => selectDevice(id));
+        }
+        list.appendChild(card);
+    });
+
+    document.getElementById('footer-peers').textContent =
+        `${[...devices.values()].filter(d => !d.offline).length} appareil(s)`;
+}
+
+function selectDevice(id) {
+    selectedId = id;
+    const dev = devices.get(id);
+    if (!dev) return;
+
+    renderDevices();
+
+    // Afficher le flux vidéo de ce device
+    if (dev.stream) {
+        videoEl.srcObject = dev.stream;
+        overlay.style.display = 'none';
+    } else {
+        videoEl.srcObject = null;
+        overlay.style.display = '';
+        overlay.innerHTML = '<span>◉</span>En attente du flux…';
+    }
+
+    // Label vidéo
+    const label = document.getElementById('video-label');
+    label.textContent = dev.name;
+    label.style.display = '';
+
+    // Panneau infos
+    document.getElementById('info-device').textContent = dev.name;
+    document.getElementById('ice-state').textContent = dev.iceState || '—';
+    document.getElementById('video-info').textContent = dev.videoInfo || '—';
+    document.getElementById('audio-info').textContent = dev.audioInfo || '—';
+
+    // GPS
+    if (dev.telemetry) updateGpsPanel(dev.telemetry);
+    else resetGpsPanel();
+
+    // Bouton flip actif si device connecté
+    btnFlip.disabled = !!dev.offline;
+
+    // Demander une nouvelle offre si pas de stream actif
+    if (!dev.pc && !dev.offline) {
+        log(`Demande de flux vers ${dev.name}…`);
+        sendSignal({ type: 'request-offer', targetId: id });
+    }
 }
 
 // ─── Signalisation WebSocket ───────────────────────────────────────────────────
@@ -284,10 +454,9 @@ function connectSignaling() {
     ws.onopen = () => {
         ws.send(JSON.stringify({ type: 'register', role: 'browser' }));
         setDot('sig', 'warn', 'Signalisation');
-        document.getElementById('sig-state').textContent = 'Connecté';
-        log('Signalisation connectée', 'ok');
-        btnConnect.textContent = 'Déconnecter';
         connected = true;
+        btnConnect.textContent = 'Déconnecter';
+        log('Signalisation connectée', 'ok');
     };
 
     ws.onmessage = ({ data }) => {
@@ -298,20 +467,23 @@ function connectSignaling() {
 
     ws.onclose = () => {
         setDot('sig', 'err', 'Déconnecté');
-        document.getElementById('sig-state').textContent = 'Fermé';
         log('Signalisation fermée', 'error');
-        btnConnect.textContent = 'Connecter';
         connected = false;
-        closePeer();
+        btnConnect.textContent = 'Connecter';
+        btnFlip.disabled = true;
+        // Marquer tous les devices comme offline
+        devices.forEach((dev, id) => {
+            closePeer(id);
+            dev.offline = true;
+        });
+        renderDevices();
     };
 
     ws.onerror = () => log('Erreur WebSocket', 'error');
 }
 
 function sendSignal(msg) {
-    if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(msg));
-    }
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
 
 // ─── Signaling handlers ───────────────────────────────────────────────────────
@@ -320,145 +492,198 @@ async function handleSignaling(msg) {
 
         case 'registered':
             setDot('sig', 'ok', 'Signalisation');
-            log('Enregistré comme "browser" — en attente de l\'Android…');
+            log('Connecté — en attente des appareils Android…');
             break;
 
-        case 'peer-joined':
-            log(`Android connecté au serveur`, 'ok');
-            document.getElementById('footer-peers').textContent = '2 pairs';
+        case 'peer-joined': {
+            const { id, name } = msg;
+            if (devices.has(id)) {
+                const dev = devices.get(id);
+                dev.offline = false;
+                dev.name = name;
+            } else {
+                devices.set(id, { name, pc: null, stream: null, telemetry: null, offline: false });
+            }
+            renderDevices();
+            log(`Appareil connecté : ${name}`, 'ok');
+            // Demande une offre (au cas où l'Android avait déjà envoyé la sienne avant qu'on soit prêt)
+            sendSignal({ type: 'request-offer', targetId: id });
+            if (!selectedId) selectDevice(id);
             break;
+        }
 
-        case 'peer-left':
-            log('Android déconnecté', 'error');
-            document.getElementById('footer-peers').textContent = '1 pair';
-            closePeer();
-            break;
-
-        case 'offer':
-            log('Offer reçue, création de la réponse…');
-            await handleOffer(msg);
-            break;
-
-        case 'answer':
-            if (pc) {
-                await pc.setRemoteDescription(new RTCSessionDescription(msg));
-                log('Answer appliquée');
+        case 'peer-left': {
+            const { id } = msg;
+            const dev = devices.get(id);
+            if (dev) {
+                closePeer(id);
+                dev.offline = true;
+                dev.pc = null;
+                dev.stream = null;
+            }
+            renderDevices();
+            log(`Appareil déconnecté : ${dev?.name || id}`, 'error');
+            if (selectedId === id) {
+                videoEl.srcObject = null;
+                overlay.style.display = '';
+                overlay.innerHTML = '<span>◉</span>Appareil déconnecté';
+                btnFlip.disabled = true;
+                resetGpsPanel();
             }
             break;
+        }
 
-        case 'ice-candidate':
-            if (pc && msg.candidate) {
-                try {
-                    await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-                } catch (e) {
-                    log('ICE candidate ignorée: ' + e.message);
-                }
+        case 'offer': {
+            const fromId = msg.fromId;
+            if (!fromId || !devices.has(fromId)) break;
+            log(`Offer reçue de ${devices.get(fromId).name}`);
+            await handleOffer(fromId, msg);
+            break;
+        }
+
+        case 'answer': {
+            const fromId = msg.fromId;
+            const dev = devices.get(fromId);
+            if (dev?.pc) {
+                await dev.pc.setRemoteDescription(new RTCSessionDescription(msg));
+                log(`Answer appliquée (${dev.name})`);
             }
             break;
+        }
+
+        case 'ice-candidate': {
+            const fromId = msg.fromId;
+            const dev = devices.get(fromId);
+            if (dev?.pc && msg.candidate) {
+                try { await dev.pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); }
+                catch (e) { log('ICE ignorée: ' + e.message); }
+            }
+            break;
+        }
     }
 }
 
-// ─── WebRTC Peer Connection ────────────────────────────────────────────────────
-async function handleOffer(msg) {
-    closePeer();
+// ─── WebRTC ───────────────────────────────────────────────────────────────────
+async function handleOffer(deviceId, msg) {
+    closePeer(deviceId);
 
-    pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const dev = devices.get(deviceId);
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    dev.pc = pc;
 
     pc.onicecandidate = ({ candidate }) => {
-        if (candidate) sendSignal({ type: 'ice-candidate', candidate });
+        if (candidate) sendSignal({ type: 'ice-candidate', targetId: deviceId, candidate });
     };
 
     pc.oniceconnectionstatechange = () => {
         const s = pc.iceConnectionState;
-        document.getElementById('ice-state').textContent = s;
-        const map = { connected: 'ok', completed: 'ok', checking: 'warn', failed: 'err', disconnected: 'err' };
-        setDot('rtc', map[s] || '', 'WebRTC');
-        log(`ICE: ${s}`, s === 'connected' || s === 'completed' ? 'ok' : s === 'failed' ? 'error' : 'info');
+        dev.iceState = s;
+        if (deviceId === selectedId) {
+            document.getElementById('ice-state').textContent = s;
+            const map = { connected: 'ok', completed: 'ok', checking: 'warn', failed: 'err', disconnected: 'err' };
+            setDot('rtc', map[s] || '', 'WebRTC');
+        }
+        log(`ICE (${dev.name}): ${s}`, s === 'connected' || s === 'completed' ? 'ok' : s === 'failed' ? 'error' : 'info');
+        renderDevices();
     };
 
     pc.ontrack = ({ track, streams }) => {
-        log(`Track reçue : ${track.kind}`, 'ok');
-
+        log(`Track reçue de ${dev.name}: ${track.kind}`, 'ok');
         if (track.kind === 'video') {
-            videoEl.srcObject = streams[0];
-            overlay.style.display = 'none';
-            document.getElementById('video-info').textContent = 'actif';
-            document.getElementById('video-info').className = 'v green';
-
-            // Afficher la résolution dès que la vidéo joue
-            videoEl.onloadedmetadata = () => {
-                document.getElementById('video-info').textContent =
-                    `${videoEl.videoWidth}×${videoEl.videoHeight}`;
-            };
+            dev.stream = streams[0];
+            dev.videoInfo = 'actif';
+            if (deviceId === selectedId) {
+                videoEl.srcObject = streams[0];
+                overlay.style.display = 'none';
+                document.getElementById('video-info').textContent = 'actif';
+                document.getElementById('video-info').className = 'v green';
+                videoEl.onloadedmetadata = () => {
+                    const info = `${videoEl.videoWidth}×${videoEl.videoHeight}`;
+                    dev.videoInfo = info;
+                    document.getElementById('video-info').textContent = info;
+                };
+            }
+            renderDevices();
         }
-
         if (track.kind === 'audio') {
-            document.getElementById('audio-info').textContent = 'actif';
-            document.getElementById('audio-info').className = 'v green';
+            dev.audioInfo = 'actif';
+            if (deviceId === selectedId) {
+                document.getElementById('audio-info').textContent = 'actif';
+                document.getElementById('audio-info').className = 'v green';
+            }
         }
     };
 
     pc.ondatachannel = ({ channel }) => {
-        log(`DataChannel ouvert : ${channel.label}`);
+        log(`DataChannel ouvert (${dev.name})`);
         channel.onmessage = ({ data }) => {
-            try { updateTelemetry(JSON.parse(data)); } catch {}
+            try {
+                const tel = JSON.parse(data);
+                dev.telemetry = tel;
+                if (deviceId === selectedId) updateGpsPanel(tel);
+                renderDevices();
+            } catch {}
         };
     };
 
     await pc.setRemoteDescription(new RTCSessionDescription(msg));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    sendSignal({ type: 'answer', sdp: answer.sdp });
-    log('Answer envoyée');
+    sendSignal({ type: 'answer', targetId: deviceId, sdp: answer.sdp });
+    log(`Answer envoyée à ${dev.name}`);
 }
 
-function closePeer() {
-    if (pc) { pc.close(); pc = null; }
-    videoEl.srcObject = null;
-    overlay.style.display = '';
-    setDot('rtc', '', 'WebRTC');
-    setDot('gps', '', 'GPS');
-    document.getElementById('ice-state').textContent = '—';
-    document.getElementById('video-info').textContent = '—';
-    document.getElementById('video-info').className = 'v';
-    document.getElementById('audio-info').textContent = '—';
-    document.getElementById('audio-info').className = 'v';
+function closePeer(deviceId) {
+    const dev = devices.get(deviceId);
+    if (!dev?.pc) return;
+    dev.pc.close();
+    dev.pc = null;
+    dev.stream = null;
+    dev.iceState = null;
+    dev.videoInfo = null;
+    dev.audioInfo = null;
 }
 
-// ─── Télémétrie GPS ────────────────────────────────────────────────────────────
-// Format attendu depuis le DataChannel Android :
-// { lat, lon, alt, acc, timestamp? }
-function updateTelemetry(data) {
+// ─── GPS Panel ────────────────────────────────────────────────────────────────
+function updateGpsPanel(data) {
     if (data.lat == null) return;
-
     const lat = parseFloat(data.lat).toFixed(6);
     const lon = parseFloat(data.lon).toFixed(6);
-    const alt = data.alt != null ? `${parseFloat(data.alt).toFixed(1)} m` : '—';
-    const acc = data.acc != null ? `± ${parseFloat(data.acc).toFixed(1)} m` : '—';
-
-    document.getElementById('gps-lat').textContent = `${lat}`;
-    document.getElementById('gps-lon').textContent = `${lon}`;
-    document.getElementById('gps-alt').textContent = alt;
-    document.getElementById('gps-acc').textContent = acc;
-
+    document.getElementById('gps-lat').textContent = lat;
+    document.getElementById('gps-lon').textContent = lon;
+    document.getElementById('gps-alt').textContent = data.alt != null ? `${parseFloat(data.alt).toFixed(1)} m` : '—';
+    document.getElementById('gps-acc').textContent = data.acc != null ? `± ${parseFloat(data.acc).toFixed(1)} m` : '—';
     const mapsEl = document.getElementById('maps-link-el');
     mapsEl.href = `https://www.google.com/maps?q=${lat},${lon}`;
     mapsEl.style.display = '';
-
     setDot('gps', 'ok', 'GPS');
 }
 
-// ─── Bouton & horloge ─────────────────────────────────────────────────────────
+function resetGpsPanel() {
+    ['gps-lat','gps-lon','gps-alt','gps-acc'].forEach(id => {
+        document.getElementById(id).textContent = '—';
+    });
+    document.getElementById('maps-link-el').style.display = 'none';
+    setDot('gps', '', 'GPS');
+}
+
+// ─── Boutons ──────────────────────────────────────────────────────────────────
 btnConnect.addEventListener('click', () => {
     if (connected) { ws?.close(); } else { connectSignaling(); }
 });
 
+btnFlip.addEventListener('click', () => {
+    if (!selectedId) return;
+    sendSignal({ type: 'flip-camera', targetId: selectedId });
+    log(`Flip caméra → ${devices.get(selectedId)?.name}`);
+});
+
+// ─── Horloge ──────────────────────────────────────────────────────────────────
 setInterval(() => {
     document.getElementById('footer-time').textContent =
         new Date().toLocaleTimeString('fr-FR');
 }, 1000);
 
-// Connexion automatique au chargement
 connectSignaling();
 </script>
 </body>

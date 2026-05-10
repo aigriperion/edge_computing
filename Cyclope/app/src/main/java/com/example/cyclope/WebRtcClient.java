@@ -38,9 +38,7 @@ public class WebRtcClient {
 
     private static final String TAG = "WebRtcClient";
 
-    // ── Changer cette IP selon l'adresse du serveur de signalisation ──────────
     public static String SERVER_URL = "ws://192.168.1.115:3000";
-    // ──────────────────────────────────────────────────────────────────────────
 
     private static final List<PeerConnection.IceServer> ICE_SERVERS = Arrays.asList(
             PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
@@ -60,9 +58,18 @@ public class WebRtcClient {
     private DataChannel dataChannel;
     private CapturerObserver capturerObserver;
     private SignalingClient signalingClient;
+    private Runnable flipListener;
+    private String deviceId;
+    private String deviceName;
 
-    public WebRtcClient(Context context) {
+    public interface FlipListener { void onFlip(); }
+
+    public void setFlipListener(Runnable listener) { this.flipListener = listener; }
+
+    public WebRtcClient(Context context, String deviceId, String deviceName) {
         this.context = context;
+        this.deviceId = deviceId;
+        this.deviceName = deviceName;
     }
 
     public void init() {
@@ -99,7 +106,16 @@ public class WebRtcClient {
             @Override
             public void onConnected() {
                 Log.i(TAG, "Signalisation connectée");
-                sendJson(new JSONObject(), "register", "android");
+                try {
+                    JSONObject reg = new JSONObject();
+                    reg.put("type", "register");
+                    reg.put("role", "android");
+                    reg.put("id", deviceId);
+                    reg.put("name", deviceName);
+                    signalingClient.send(reg.toString());
+                } catch (JSONException e) {
+                    Log.e(TAG, "register", e);
+                }
             }
 
             @Override
@@ -166,6 +182,20 @@ public class WebRtcClient {
                                 c.getInt("sdpMLineIndex"),
                                 c.getString("candidate")));
                     }
+                    break;
+                case "request-offer":
+                    Log.i(TAG, "Nouvelle offre demandée");
+                    executor.execute(() -> {
+                        if (peerConnection != null) {
+                            peerConnection.close();
+                            peerConnection.dispose();
+                            peerConnection = null;
+                        }
+                        createOfferAndPeerConnection();
+                    });
+                    break;
+                case "flip-camera":
+                    if (flipListener != null) flipListener.run();
                     break;
             }
         } catch (JSONException e) {

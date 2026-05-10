@@ -104,7 +104,7 @@ void CV_Manager::CameraLoop() {
     }
 
     while (!m_camera_thread_stopped) {
-        if (!m_camera_ready || m_image_reader == nullptr || m_native_window == nullptr) {
+        if (!m_camera_ready || m_image_reader == nullptr) {
             usleep(1000);
             continue;
         }

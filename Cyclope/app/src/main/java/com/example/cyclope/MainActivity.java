@@ -31,19 +31,12 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        btnToggle = findViewById(R.id.scanButton);
-        tvStatus  = findViewById(R.id.flipButton) != null
-                    ? new TextView(this)   // fallback si layout non modifié
-                    : new TextView(this);
-
-        // On réutilise le bouton existant comme toggle
+        btnToggle = findViewById(R.id.scan_button);
         btnToggle.setText("Démarrer l'agent");
         btnToggle.setOnClickListener(v -> toggleService());
 
-        // Masquer le second bouton s'il existe
-        if (findViewById(R.id.flipButton) instanceof Button) {
-            ((Button) findViewById(R.id.flipButton)).setVisibility(android.view.View.GONE);
-        }
+        Button btnFlip = findViewById(R.id.flip_button);
+        if (btnFlip != null) btnFlip.setVisibility(android.view.View.GONE);
     }
 
     private void toggleService() {

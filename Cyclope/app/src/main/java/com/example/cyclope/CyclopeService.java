@@ -1,6 +1,7 @@
 package com.example.cyclope;
 
 import android.app.Notification;
+import android.provider.Settings;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -34,6 +35,7 @@ public class CyclopeService extends Service {
     // ── Méthodes natives ────────────────────────────────────────────────────
     private native void nativeStart();
     private native void nativeStop();
+    private native void nativeFlipCamera();
     private native void nativeSetWebRtcCallback(Object cb);
     private native void nativeSetGpsData(double lat, double lon, double alt, float accuracy);
 
@@ -49,7 +51,10 @@ public class CyclopeService extends Service {
         startForeground(NOTIF_ID, buildNotification("Démarrage…"));
         Log.i(TAG, "Agent démarré");
 
-        webRtcClient = new WebRtcClient(this);
+        String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+        String deviceName = android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL;
+        webRtcClient = new WebRtcClient(this, deviceId, deviceName);
+        webRtcClient.setFlipListener(this::nativeFlipCamera);
         webRtcClient.init();
         nativeSetWebRtcCallback(webRtcClient);
         nativeStart();

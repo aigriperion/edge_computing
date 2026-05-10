@@ -120,6 +120,13 @@ Java_com_example_cyclope_CyclopeService_nativeSetWebRtcCallback(
 
 extern "C"
 JNIEXPORT void JNICALL
+Java_com_example_cyclope_CyclopeService_nativeFlipCamera(JNIEnv *env, jobject thiz) {
+    app.FlipCamera();
+    LOGD("CyclopeService: flip caméra");
+}
+
+extern "C"
+JNIEXPORT void JNICALL
 Java_com_example_cyclope_CyclopeService_nativeSetGpsData(
         JNIEnv *env, jobject thiz,
         jdouble lat, jdouble lon, jdouble alt, jfloat accuracy) {

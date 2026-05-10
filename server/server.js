@@ -15,50 +15,81 @@ app.use(express.static(path.join(__dirname, 'public')));
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Deux rôles fixes : 'android' et 'browser'
-// Le serveur relaie simplement les messages entre les deux
+// peers['browser'] = WebSocket du browser
+// peers[deviceId]  = WebSocket d'un Android
 const peers = {};
+const meta  = {}; // deviceId → { name }
 
 wss.on('connection', (ws, req) => {
     const ip = req.socket.remoteAddress;
-    let role = null;
+    let role = null; // 'browser' | deviceId
 
     ws.on('message', (raw) => {
         let msg;
         try { msg = JSON.parse(raw); } catch { return; }
 
-        // Premier message obligatoire : { type: 'register', role: 'android' | 'browser' }
+        // ── Enregistrement ──────────────────────────────────────────────────
         if (msg.type === 'register') {
-            role = msg.role;
-            peers[role] = ws;
-            console.log(`[${ts()}] ${role} connecté (${ip})`);
-            ws.send(JSON.stringify({ type: 'registered', role }));
+            if (msg.role === 'browser') {
+                role = 'browser';
+                peers['browser'] = ws;
+                console.log(`[${ts()}] browser connecté (${ip})`);
+                ws.send(JSON.stringify({ type: 'registered', role: 'browser' }));
 
-            // Notifier l'autre pair qu'un nouveau pair est arrivé
-            const other = role === 'android' ? peers['browser'] : peers['android'];
-            if (other?.readyState === 1) {
-                other.send(JSON.stringify({ type: 'peer-joined', role }));
+                // Notifier le browser de tous les androids déjà connectés
+                Object.keys(peers).filter(k => k !== 'browser').forEach(id => {
+                    ws.send(JSON.stringify({ type: 'peer-joined', id, name: meta[id]?.name || id }));
+                });
+
+            } else if (msg.role === 'android') {
+                role = msg.id || `android_${Date.now()}`;
+                peers[role] = ws;
+                meta[role]  = { name: msg.name || role };
+                console.log(`[${ts()}] android connecté : ${role} (${meta[role].name}) (${ip})`);
+                ws.send(JSON.stringify({ type: 'registered', role: 'android', id: role }));
+
+                // Notifier le browser
+                if (peers['browser']?.readyState === 1) {
+                    peers['browser'].send(JSON.stringify({
+                        type: 'peer-joined', id: role, name: meta[role].name
+                    }));
+                }
             }
             return;
         }
 
-        // Relayer tous les autres messages (offer, answer, ice-candidate, telemetry…)
-        const target = role === 'android' ? peers['browser'] : peers['android'];
-        if (target?.readyState === 1) {
-            target.send(raw.toString());
-        } else {
-            console.warn(`[${ts()}] [relay] pas de destinataire pour ${role} (msg: ${msg.type})`);
+        // ── Relais ──────────────────────────────────────────────────────────
+        if (role === 'browser') {
+            // Browser → Android ciblé via targetId
+            const targetId = msg.targetId;
+            const target = targetId ? peers[targetId] : null;
+            if (target?.readyState === 1) {
+                target.send(raw.toString());
+            } else {
+                console.warn(`[${ts()}] [relay] android introuvable : ${targetId}`);
+            }
+
+        } else if (role) {
+            // Android → Browser (on ajoute fromId pour que le browser sache qui parle)
+            const browser = peers['browser'];
+            if (browser?.readyState === 1) {
+                const enriched = Object.assign({}, msg, { fromId: role });
+                browser.send(JSON.stringify(enriched));
+            }
         }
     });
 
     ws.on('close', () => {
         if (!role) return;
         delete peers[role];
-        console.log(`[${ts()}] ${role} déconnecté`);
+        delete meta[role];
+        console.log(`[${ts()}] déconnecté : ${role}`);
 
-        const other = role === 'android' ? peers['browser'] : peers['android'];
-        if (other?.readyState === 1) {
-            other.send(JSON.stringify({ type: 'peer-left', role }));
+        if (role === 'browser') return;
+
+        // Notifier le browser qu'un android est parti
+        if (peers['browser']?.readyState === 1) {
+            peers['browser'].send(JSON.stringify({ type: 'peer-left', id: role }));
         }
     });
 
@@ -72,5 +103,4 @@ function ts() {
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`Serveur de signalisation : http://localhost:${PORT}`);
     console.log(`Android WebSocket        : ws://<VOTRE_IP>:${PORT}`);
-    console.log(`(HTTPS requis pour caméra/micro hors localhost)`);
 });

@@ -88,3 +88,40 @@ Java_com_example_cyclope_MainActivity_setWebRtcCallback(
                         : nullptr;
     app.SetFrameCallback(g_jvm, globalRef, env);
 }
+
+// ── CyclopeService JNI ──────────────────────────────────────────────────────
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_example_cyclope_CyclopeService_nativeStart(JNIEnv *env, jobject thiz) {
+    if (app.IsInitialized()) return;
+    app.SetUpCamera();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    app.StartCameraLoop();
+    app.SetInitialized(true);
+    LOGD("CyclopeService: agent démarré");
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_example_cyclope_CyclopeService_nativeStop(JNIEnv *env, jobject thiz) {
+    app.TearDownCamera();
+    app.SetInitialized(false);
+    LOGD("CyclopeService: agent arrêté");
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_example_cyclope_CyclopeService_nativeSetWebRtcCallback(
+        JNIEnv *env, jobject thiz, jobject cb) {
+    jobject globalRef = (cb != nullptr) ? env->NewGlobalRef(cb) : nullptr;
+    app.SetFrameCallback(g_jvm, globalRef, env);
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_example_cyclope_CyclopeService_nativeSetGpsData(
+        JNIEnv *env, jobject thiz,
+        jdouble lat, jdouble lon, jdouble alt, jfloat accuracy) {
+    app.SetGpsData(lat, lon, alt, accuracy);
+}

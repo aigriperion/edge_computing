@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cyclope — Live</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0d0d0d;
+    --panel: #161616;
+    --border: #2a2a2a;
+    --accent: #00e5ff;
+    --green: #00e676;
+    --red: #ff1744;
+    --yellow: #ffd740;
+    --text: #e0e0e0;
+    --muted: #666;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    height: 100dvh;
+    display: grid;
+    grid-template-rows: 48px 1fr 36px;
+    grid-template-columns: 1fr 280px;
+    grid-template-areas:
+      "header header"
+      "video  panel"
+      "footer footer";
+    overflow: hidden;
+  }
+
+  /* ── HEADER ── */
+  header {
+    grid-area: header;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .logo { color: var(--accent); font-size: 16px; font-weight: bold; letter-spacing: 3px; }
+  .status-pill {
+    display: flex; align-items: center; gap: 6px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    font-size: 11px;
+  }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted);
+    transition: background .3s;
+  }
+  .dot.ok   { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.warn { background: var(--yellow); }
+  .dot.err  { background: var(--red); }
+
+  .spacer { flex: 1; }
+
+  /* ── VIDEO ── */
+  .video-area {
+    grid-area: video;
+    position: relative;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  video {
+    width: 100%; height: 100%;
+    object-fit: contain;
+  }
+  .overlay-msg {
+    position: absolute;
+    color: var(--muted);
+    font-size: 14px;
+    letter-spacing: 1px;
+    text-align: center;
+  }
+  .overlay-msg span { display: block; font-size: 28px; margin-bottom: 8px; }
+
+  /* ── SIDE PANEL ── */
+  aside {
+    grid-area: panel;
+    border-left: 1px solid var(--border);
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .section {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-title {
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .kv { display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .kv .k { color: var(--muted); }
+  .kv .v { color: var(--accent); font-weight: bold; }
+  .kv .v.green { color: var(--green); }
+  .kv .v.red   { color: var(--red); }
+  .kv .v.yellow { color: var(--yellow); }
+
+  .coord-big {
+    font-size: 15px;
+    color: var(--accent);
+    margin-bottom: 4px;
+    word-break: break-all;
+  }
+
+  .maps-link {
+    display: inline-block;
+    margin-top: 6px;
+    color: var(--accent);
+    font-size: 11px;
+    text-decoration: none;
+    border: 1px solid var(--accent);
+    padding: 3px 8px;
+    border-radius: 4px;
+    opacity: .6;
+    transition: opacity .2s;
+  }
+  .maps-link:hover { opacity: 1; }
+  #maps-link-el { display: none; }
+
+  .log-area {
+    flex: 1;
+    padding: 10px 14px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column-reverse;
+  }
+  .log-line {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 3px;
+    opacity: .8;
+  }
+  .log-line.info  { color: var(--text); }
+  .log-line.ok    { color: var(--green); }
+  .log-line.error { color: var(--red); }
+
+  /* ── FOOTER ── */
+  footer {
+    grid-area: footer;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  footer .sep { color: var(--border); }
+
+  /* ── BUTTONS ── */
+  .btn {
+    margin-top: 8px;
+    padding: 6px 12px;
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 4px;
+    letter-spacing: 1px;
+    transition: background .2s;
+  }
+  .btn:hover { background: rgba(0,229,255,.1); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">CYCLOPE</div>
+  <div class="status-pill"><div class="dot" id="dot-sig"></div><span id="lbl-sig">Déconnecté</span></div>
+  <div class="status-pill"><div class="dot" id="dot-rtc"></div><span id="lbl-rtc">WebRTC</span></div>
+  <div class="status-pill"><div class="dot" id="dot-gps"></div><span id="lbl-gps">GPS</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="btn-connect">Connecter</button>
+</header>
+
+<div class="video-area">
+  <video id="video" autoplay playsinline muted></video>
+  <div class="overlay-msg" id="overlay">
+    <span>◉</span>En attente du flux Android…
+  </div>
+</div>
+
+<aside>
+  <div class="section">
+    <div class="section-title">GPS / Télémétrie</div>
+    <div class="coord-big" id="gps-lat">—</div>
+    <div class="coord-big" id="gps-lon">—</div>
+    <div class="kv"><span class="k">Altitude</span><span class="v" id="gps-alt">—</span></div>
+    <div class="kv"><span class="k">Précision</span><span class="v" id="gps-acc">—</span></div>
+    <a class="maps-link" id="maps-link-el" target="_blank">↗ Voir sur Maps</a>
+  </div>
+
+  <div class="section">
+    <div class="section-title">WebRTC</div>
+    <div class="kv"><span class="k">État ICE</span><span class="v" id="ice-state">—</span></div>
+    <div class="kv"><span class="k">Signalisation</span><span class="v" id="sig-state">—</span></div>
+    <div class="kv"><span class="k">Vidéo</span><span class="v" id="video-info">—</span></div>
+    <div class="kv"><span class="k">Audio</span><span class="v" id="audio-info">—</span></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Journal</div>
+  </div>
+  <div class="log-area" id="log"></div>
+</aside>
+
+<footer>
+  <span id="footer-time">—</span>
+  <span class="sep">|</span>
+  <span>ws://<span id="footer-host">—</span></span>
+  <span class="sep">|</span>
+  <span id="footer-peers">0 pair(s)</span>
+</footer>
+
+<script>
+// ─── Configuration ────────────────────────────────────────────────────────────
+const ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+];
+
+// ─── État global ──────────────────────────────────────────────────────────────
+let ws = null;
+let pc = null;
+let connected = false;
+
+// ─── DOM ──────────────────────────────────────────────────────────────────────
+const videoEl      = document.getElementById('video');
+const overlay      = document.getElementById('overlay');
+const btnConnect   = document.getElementById('btn-connect');
+
+// ─── Logs ─────────────────────────────────────────────────────────────────────
+function log(msg, level = 'info') {
+    const el = document.createElement('div');
+    el.className = `log-line ${level}`;
+    const t = new Date().toISOString().substring(11, 23);
+    el.textContent = `[${t}] ${msg}`;
+    document.getElementById('log').prepend(el);
+    if (document.getElementById('log').children.length > 80) {
+        document.getElementById('log').lastElementChild.remove();
+    }
+}
+
+// ─── Status pills ─────────────────────────────────────────────────────────────
+function setDot(id, state, label) {
+    const dot = document.getElementById(`dot-${id}`);
+    const lbl = document.getElementById(`lbl-${id}`);
+    dot.className = 'dot ' + (state === 'ok' ? 'ok' : state === 'warn' ? 'warn' : state === 'err' ? 'err' : '');
+    if (label) lbl.textContent = label;
+}
+
+// ─── Signalisation WebSocket ───────────────────────────────────────────────────
+function connectSignaling() {
+    if (ws) { ws.close(); ws = null; }
+
+    const url = `ws://${location.host}`;
+    document.getElementById('footer-host').textContent = location.host;
+    log(`Connexion à ${url}…`);
+
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'register', role: 'browser' }));
+        setDot('sig', 'warn', 'Signalisation');
+        document.getElementById('sig-state').textContent = 'Connecté';
+        log('Signalisation connectée', 'ok');
+        btnConnect.textContent = 'Déconnecter';
+        connected = true;
+    };
+
+    ws.onmessage = ({ data }) => {
+        let msg;
+        try { msg = JSON.parse(data); } catch { return; }
+        handleSignaling(msg);
+    };
+
+    ws.onclose = () => {
+        setDot('sig', 'err', 'Déconnecté');
+        document.getElementById('sig-state').textContent = 'Fermé';
+        log('Signalisation fermée', 'error');
+        btnConnect.textContent = 'Connecter';
+        connected = false;
+        closePeer();
+    };
+
+    ws.onerror = () => log('Erreur WebSocket', 'error');
+}
+
+function sendSignal(msg) {
+    if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(msg));
+    }
+}
+
+// ─── Signaling handlers ───────────────────────────────────────────────────────
+async function handleSignaling(msg) {
+    switch (msg.type) {
+
+        case 'registered':
+            setDot('sig', 'ok', 'Signalisation');
+            log('Enregistré comme "browser" — en attente de l\'Android…');
+            break;
+
+        case 'peer-joined':
+            log(`Android connecté au serveur`, 'ok');
+            document.getElementById('footer-peers').textContent = '2 pairs';
+            break;
+
+        case 'peer-left':
+            log('Android déconnecté', 'error');
+            document.getElementById('footer-peers').textContent = '1 pair';
+            closePeer();
+            break;
+
+        case 'offer':
+            log('Offer reçue, création de la réponse…');
+            await handleOffer(msg);
+            break;
+
+        case 'answer':
+            if (pc) {
+                await pc.setRemoteDescription(new RTCSessionDescription(msg));
+                log('Answer appliquée');
+            }
+            break;
+
+        case 'ice-candidate':
+            if (pc && msg.candidate) {
+                try {
+                    await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+                } catch (e) {
+                    log('ICE candidate ignorée: ' + e.message);
+                }
+            }
+            break;
+    }
+}
+
+// ─── WebRTC Peer Connection ────────────────────────────────────────────────────
+async function handleOffer(msg) {
+    closePeer();
+
+    pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
+    pc.onicecandidate = ({ candidate }) => {
+        if (candidate) sendSignal({ type: 'ice-candidate', candidate });
+    };
+
+    pc.oniceconnectionstatechange = () => {
+        const s = pc.iceConnectionState;
+        document.getElementById('ice-state').textContent = s;
+        const map = { connected: 'ok', completed: 'ok', checking: 'warn', failed: 'err', disconnected: 'err' };
+        setDot('rtc', map[s] || '', 'WebRTC');
+        log(`ICE: ${s}`, s === 'connected' || s === 'completed' ? 'ok' : s === 'failed' ? 'error' : 'info');
+    };
+
+    pc.ontrack = ({ track, streams }) => {
+        log(`Track reçue : ${track.kind}`, 'ok');
+
+        if (track.kind === 'video') {
+            videoEl.srcObject = streams[0];
+            overlay.style.display = 'none';
+            document.getElementById('video-info').textContent = 'actif';
+            document.getElementById('video-info').className = 'v green';
+
+            // Afficher la résolution dès que la vidéo joue
+            videoEl.onloadedmetadata = () => {
+                document.getElementById('video-info').textContent =
+                    `${videoEl.videoWidth}×${videoEl.videoHeight}`;
+            };
+        }
+
+        if (track.kind === 'audio') {
+            document.getElementById('audio-info').textContent = 'actif';
+            document.getElementById('audio-info').className = 'v green';
+        }
+    };
+
+    pc.ondatachannel = ({ channel }) => {
+        log(`DataChannel ouvert : ${channel.label}`);
+        channel.onmessage = ({ data }) => {
+            try { updateTelemetry(JSON.parse(data)); } catch {}
+        };
+    };
+
+    await pc.setRemoteDescription(new RTCSessionDescription(msg));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    sendSignal({ type: 'answer', sdp: answer.sdp });
+    log('Answer envoyée');
+}
+
+function closePeer() {
+    if (pc) { pc.close(); pc = null; }
+    videoEl.srcObject = null;
+    overlay.style.display = '';
+    setDot('rtc', '', 'WebRTC');
+    setDot('gps', '', 'GPS');
+    document.getElementById('ice-state').textContent = '—';
+    document.getElementById('video-info').textContent = '—';
+    document.getElementById('video-info').className = 'v';
+    document.getElementById('audio-info').textContent = '—';
+    document.getElementById('audio-info').className = 'v';
+}
+
+// ─── Télémétrie GPS ────────────────────────────────────────────────────────────
+// Format attendu depuis le DataChannel Android :
+// { lat, lon, alt, acc, timestamp? }
+function updateTelemetry(data) {
+    if (data.lat == null) return;
+
+    const lat = parseFloat(data.lat).toFixed(6);
+    const lon = parseFloat(data.lon).toFixed(6);
+    const alt = data.alt != null ? `${parseFloat(data.alt).toFixed(1)} m` : '—';
+    const acc = data.acc != null ? `± ${parseFloat(data.acc).toFixed(1)} m` : '—';
+
+    document.getElementById('gps-lat').textContent = `${lat}`;
+    document.getElementById('gps-lon').textContent = `${lon}`;
+    document.getElementById('gps-alt').textContent = alt;
+    document.getElementById('gps-acc').textContent = acc;
+
+    const mapsEl = document.getElementById('maps-link-el');
+    mapsEl.href = `https://www.google.com/maps?q=${lat},${lon}`;
+    mapsEl.style.display = '';
+
+    setDot('gps', 'ok', 'GPS');
+}
+
+// ─── Bouton & horloge ─────────────────────────────────────────────────────────
+btnConnect.addEventListener('click', () => {
+    if (connected) { ws?.close(); } else { connectSignaling(); }
+});
+
+setInterval(() => {
+    document.getElementById('footer-time').textContent =
+        new Date().toLocaleTimeString('fr-FR');
+}, 1000);
+
+// Connexion automatique au chargement
+connectSignaling();
+</script>
+</body>
+</html>

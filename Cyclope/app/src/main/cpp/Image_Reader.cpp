@@ -513,3 +513,42 @@ void Image_Reader::BlitCenterCropToBuffer(ANativeWindow_Buffer *buf, const cv::M
 
     CenterCropResize(srcRGBA, dstRGBA);
 }
+
+void Image_Reader::ExtractNV21(AImage *image, std::vector<uint8_t> &nv21) {
+    if (image == nullptr) return;
+
+    AImageCropRect crop;
+    AImage_getCropRect(image, &crop);
+    const int w = crop.right  - crop.left;
+    const int h = crop.bottom - crop.top;
+
+    uint8_t *yData = nullptr, *uData = nullptr, *vData = nullptr;
+    int yLen = 0, uLen = 0, vLen = 0;
+    int32_t yRowStride = 0, uvRowStride = 0, uvPixStride = 0;
+
+    AImage_getPlaneData(image, 0, &yData, &yLen);
+    AImage_getPlaneData(image, 1, &uData, &uLen);
+    AImage_getPlaneData(image, 2, &vData, &vLen);
+    AImage_getPlaneRowStride(image, 0, &yRowStride);
+    AImage_getPlaneRowStride(image, 1, &uvRowStride);
+    AImage_getPlanePixelStride(image, 1, &uvPixStride);
+
+    if (!yData || !uData || !vData) return;
+
+    nv21.resize(static_cast<size_t>(w * h * 3 / 2));
+    uint8_t *dst = nv21.data();
+
+    // Y plane compact
+    for (int row = 0; row < h; ++row) {
+        memcpy(dst, yData + row * yRowStride, w);
+        dst += w;
+    }
+
+    // UV interleaved — NV21 = V then U
+    for (int row = 0; row < h / 2; ++row) {
+        for (int col = 0; col < w / 2; ++col) {
+            *dst++ = vData[row * uvRowStride + col * uvPixStride];
+            *dst++ = uData[row * uvRowStride + col * uvPixStride];
+        }
+    }
+}

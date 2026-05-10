@@ -11,6 +11,12 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 static CV_Manager app;
+static JavaVM *g_jvm = nullptr;
+
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
+    g_jvm = vm;
+    return JNI_VERSION_1_6;
+}
 
 extern "C"
 JNIEXPORT void JNICALL
@@ -71,4 +77,14 @@ Java_com_example_cyclope_MainActivity_setSurface(JNIEnv *env, jobject thiz, jobj
     app.SetInitialized(true);
 
     LOGD("setSurface() -> initialization done");
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_example_cyclope_MainActivity_setWebRtcCallback(
+        JNIEnv *env, jobject thiz, jobject webrtc_client) {
+    jobject globalRef = (webrtc_client != nullptr)
+                        ? env->NewGlobalRef(webrtc_client)
+                        : nullptr;
+    app.SetFrameCallback(g_jvm, globalRef, env);
 }

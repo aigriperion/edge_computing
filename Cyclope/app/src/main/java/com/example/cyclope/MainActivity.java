@@ -10,6 +10,8 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
@@ -34,6 +36,7 @@ public class MainActivity extends AppCompatActivity {
 
     private ActivityMainBinding binding;
     private boolean nativeInitialized = false;
+    private WebRtcClient webRtcClient;
 
     private LocationManager locationManager;
     private LocationListener locationListener;
@@ -43,6 +46,7 @@ public class MainActivity extends AppCompatActivity {
     public native void flipCamera();
     public native void setSurface(Surface surface);
     public native void setGpsData(double lat, double lon, double alt, float accuracy);
+    public native void setWebRtcCallback(Object webRtcClient);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,6 +58,7 @@ public class MainActivity extends AppCompatActivity {
         String[] requiredPermissions = {
                 Manifest.permission.CAMERA,
                 Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.RECORD_AUDIO,
         };
 
         if (!hasPermissions(requiredPermissions)) {
@@ -79,6 +84,10 @@ public class MainActivity extends AppCompatActivity {
         }
 
         nativeInitialized = true;
+
+        webRtcClient = new WebRtcClient(this);
+        webRtcClient.init();
+        setWebRtcCallback(webRtcClient);
 
         SurfaceView surfaceView = binding.surfaceView;
         SurfaceHolder surfaceHolder = surfaceView.getHolder();
@@ -158,6 +167,13 @@ public class MainActivity extends AppCompatActivity {
                         location.getAltitude(),
                         location.getAccuracy()
                 );
+                if (webRtcClient != null) {
+                    webRtcClient.sendGps(
+                            location.getLatitude(),
+                            location.getLongitude(),
+                            location.getAltitude(),
+                            location.getAccuracy());
+                }
             }
         };
 
@@ -176,6 +192,9 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         if (locationManager != null && locationListener != null) {
             locationManager.removeUpdates(locationListener);
+        }
+        if (webRtcClient != null) {
+            webRtcClient.release();
         }
     }
 

@@ -60,6 +60,7 @@ void CV_Manager::SetUpCamera() {
 
     const int orientation = m_native_camera->GetOrientation();
     m_image_reader->SetPresentRotation(orientation);
+    m_orientation = orientation;
     LOGI("[CV_Manager] Present rotation: %d", orientation);
 
     ANativeWindow *image_reader_window = m_image_reader->GetNativeWindow();
@@ -100,6 +101,12 @@ void CV_Manager::TearDownCamera() {
 void CV_Manager::CameraLoop() {
     bool buffer_printout = false;
 
+    JNIEnv *jni_env = nullptr;
+    bool thread_attached = false;
+    if (m_jvm != nullptr) {
+        thread_attached = (m_jvm->AttachCurrentThread(&jni_env, nullptr) == JNI_OK);
+    }
+
     while (!m_camera_thread_stopped) {
         if (!m_camera_ready || m_image_reader == nullptr || m_native_window == nullptr) {
             usleep(1000);
@@ -110,6 +117,23 @@ void CV_Manager::CameraLoop() {
         if (image == nullptr) {
             usleep(1000);
             continue;
+        }
+
+        // Feed frame to WebRTC before DisplayImage (which deletes the image)
+        if (thread_attached && jni_env && m_frame_cb && m_onframe_mid) {
+            m_image_reader->ExtractNV21(image, m_nv21_buf);
+            if (!m_nv21_buf.empty()) {
+                auto now = std::chrono::system_clock::now().time_since_epoch();
+                jlong tsNs = (jlong)std::chrono::duration_cast<std::chrono::nanoseconds>(now).count();
+                jbyteArray jbuf = jni_env->NewByteArray((jsize)m_nv21_buf.size());
+                jni_env->SetByteArrayRegion(jbuf, 0, (jsize)m_nv21_buf.size(),
+                                            reinterpret_cast<const jbyte *>(m_nv21_buf.data()));
+                jni_env->CallVoidMethod(m_frame_cb, m_onframe_mid,
+                                       jbuf,
+                                       (jint)m_view.width, (jint)m_view.height,
+                                       (jint)m_orientation, tsNs);
+                jni_env->DeleteLocalRef(jbuf);
+            }
         }
 
         ANativeWindow_acquire(m_native_window);
@@ -191,6 +215,10 @@ void CV_Manager::CameraLoop() {
     }
 
     LOGI("CameraLoop stopped cleanly");
+
+    if (thread_attached && m_jvm) {
+        m_jvm->DetachCurrentThread();
+    }
 }
 
 bool CV_Manager::IsInitialized() const {
@@ -269,4 +297,21 @@ void CV_Manager::ReleaseMats() {
     anchor.release();
     cleaned.release();
     hierarchy.release();
+}
+
+void CV_Manager::SetFrameCallback(JavaVM *jvm, jobject cb, JNIEnv *env) {
+    std::lock_guard<std::mutex> lock(m_camera_mutex);
+    if (m_frame_cb != nullptr && m_jvm != nullptr) {
+        JNIEnv *e = nullptr;
+        if (m_jvm->GetEnv(reinterpret_cast<void **>(&e), JNI_VERSION_1_6) == JNI_OK && e) {
+            e->DeleteGlobalRef(m_frame_cb);
+        }
+    }
+    m_jvm = jvm;
+    m_frame_cb = cb;
+    if (cb != nullptr && env != nullptr) {
+        jclass cls = env->GetObjectClass(cb);
+        m_onframe_mid = env->GetMethodID(cls, "onNdkFrame", "([BIIIJ)V");
+        env->DeleteLocalRef(cls);
+    }
 }

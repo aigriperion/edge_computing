@@ -17,6 +17,7 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <chrono>
 
 
 using namespace cv;
@@ -44,6 +45,7 @@ public:
     void TearDownCamera();
     void ReleaseMats();
     void SetGpsData(double lat, double lon, double alt, float accuracy);
+    void SetFrameCallback(JavaVM *jvm, jobject cb, JNIEnv *env);
 
 private:
     ANativeWindow *m_native_window;
@@ -88,6 +90,12 @@ private:
     double m_gps_alt{0.0};
     float  m_gps_acc{0.0f};
     std::atomic<bool> m_gps_valid{false};
+
+    JavaVM              *m_jvm{nullptr};
+    jobject              m_frame_cb{nullptr};
+    jmethodID            m_onframe_mid{nullptr};
+    uint32_t             m_orientation{0};
+    std::vector<uint8_t> m_nv21_buf;
 
 };
 

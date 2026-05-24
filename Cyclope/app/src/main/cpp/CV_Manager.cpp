@@ -115,21 +115,27 @@ void CV_Manager::CameraLoop() {
             continue;
         }
 
-        // Feed frame to WebRTC before DisplayImage (which deletes the image)
+        // Feed frame to WebRTC — avec throttling ABR
         if (thread_attached && jni_env && m_frame_cb && m_onframe_mid) {
-            m_image_reader->ExtractNV21(image, m_nv21_buf);
-            if (!m_nv21_buf.empty()) {
-                auto now = std::chrono::system_clock::now().time_since_epoch();
-                jlong tsNs = (jlong)std::chrono::duration_cast<std::chrono::nanoseconds>(now).count();
-                jbyteArray jbuf = jni_env->NewByteArray((jsize)m_nv21_buf.size());
-                jni_env->SetByteArrayRegion(jbuf, 0, (jsize)m_nv21_buf.size(),
-                                            reinterpret_cast<const jbyte *>(m_nv21_buf.data()));
-                jni_env->CallVoidMethod(m_frame_cb, m_onframe_mid,
-                                       jbuf,
-                                       (jint)m_view.width, (jint)m_view.height,
-                                       (jint)m_orientation, tsNs);
-                jni_env->DeleteLocalRef(jbuf);
+            auto nowNs = (int64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            int64_t minIntervalNs = 1'000'000'000LL / m_target_fps.load();
+
+            if (nowNs - m_last_sent_frame_ns >= minIntervalNs) {
+                m_last_sent_frame_ns = nowNs;
+                m_image_reader->ExtractNV21(image, m_nv21_buf);
+                if (!m_nv21_buf.empty()) {
+                    jbyteArray jbuf = jni_env->NewByteArray((jsize)m_nv21_buf.size());
+                    jni_env->SetByteArrayRegion(jbuf, 0, (jsize)m_nv21_buf.size(),
+                                                reinterpret_cast<const jbyte *>(m_nv21_buf.data()));
+                    jni_env->CallVoidMethod(m_frame_cb, m_onframe_mid,
+                                           jbuf,
+                                           (jint)m_view.width, (jint)m_view.height,
+                                           (jint)m_orientation, (jlong)nowNs);
+                    jni_env->DeleteLocalRef(jbuf);
+                }
             }
+            // Si frame skippée, l'affichage local continue normalement ci-dessous
         }
 
         if (m_native_window != nullptr) {
@@ -284,6 +290,13 @@ void CV_Manager::ReleaseMats() {
     anchor.release();
     cleaned.release();
     hierarchy.release();
+}
+
+void CV_Manager::SetTargetFps(int fps) {
+    if (fps > 0 && fps <= 60) {
+        m_target_fps.store(fps);
+        LOGI("[CV_Manager] Target FPS → %d", fps);
+    }
 }
 
 void CV_Manager::SetFrameCallback(JavaVM *jvm, jobject cb, JNIEnv *env) {

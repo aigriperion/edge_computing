@@ -239,6 +239,11 @@
   .kv .k { color: var(--muted); }
   .kv .v { color: var(--accent); font-weight: bold; }
   .kv .v.green { color: var(--green); }
+  .q-HIGH   { color: var(--green);  font-weight: bold; }
+  .q-MEDIUM { color: var(--yellow); font-weight: bold; }
+  .q-LOW    { color: var(--red);    font-weight: bold; }
+  .abr-bar  { height: 3px; border-radius: 2px; background: var(--border); margin-top: 4px; }
+  .abr-fill { height: 100%; border-radius: 2px; transition: width .5s, background .5s; }
   .coord-big { font-size: 15px; color: var(--accent); margin-bottom: 4px; word-break: break-all; }
   .maps-link {
     display: inline-block; margin-top: 6px; color: var(--accent); font-size: 11px;
@@ -346,6 +351,11 @@
       <div class="kv"><span class="k">FPS envoyés</span><span class="v" id="focus-fps-out">—</span></div>
       <div class="kv"><span class="k">Résolution</span><span class="v" id="focus-res">—</span></div>
       <div class="kv"><span class="k">ICE</span><span class="v green" id="focus-ice">—</span></div>
+      <div class="kv"><span class="k">QUALITÉ</span>       <span class="v" id="focus-quality">—</span></div>
+      <div class="kv"><span class="k">BANDE PASSANTE</span><span class="v" id="focus-bw">— kbps</span></div>
+      <div class="kv"><span class="k">PERTE PAQUETS</span> <span class="v" id="focus-loss">—%</span></div>
+      <div class="kv"><span class="k">RTT</span>           <span class="v" id="focus-rtt">— ms</span></div>
+      <div class="abr-bar"><div class="abr-fill" id="focus-bw-bar" style="width:0%"></div></div>
     </div>
     <!-- Notifications -->
     <div class="section"><div class="section-title">Notifications</div></div>
@@ -834,8 +844,12 @@ async function handleOffer(deviceId, msg) {
                 if (msg.type === 'stats') {
                     if (!dev.stats) dev.stats = {};
                     dev.stats.fpsOut = msg.fps  || 0;
-                    if (msg.width)  dev.stats.width  = msg.width;
-                    if (msg.height) dev.stats.height = msg.height;
+                    if (msg.width)   dev.stats.width   = msg.width;
+                    if (msg.height)  dev.stats.height  = msg.height;
+                    if (msg.quality) dev.stats.quality = msg.quality;
+                    dev.stats.bwKbps  = msg.bw_kbps  || 0;
+                    dev.stats.lossPct = msg.loss_pct || '0.0';
+                    dev.stats.rttMs   = msg.rtt_ms   || 0;
                     updateTileStats(deviceId);
                     if (focusedId === deviceId) updateFocusStats();
                 } else {
@@ -915,6 +929,28 @@ function updateFocusStats() {
     document.getElementById('focus-fps-in').textContent  = s.fpsIn  > 0 ? `${s.fpsIn} fps`  : '—';
     document.getElementById('focus-fps-out').textContent = s.fpsOut > 0 ? `${s.fpsOut} fps` : '—';
     document.getElementById('focus-res').textContent     = (s.width && s.height) ? `${s.width} × ${s.height}` : '—';
+
+    // ABR
+    const q = s.quality || 'HIGH';
+    const qEl = document.getElementById('focus-quality');
+    if (qEl) { qEl.textContent = q; qEl.className = 'v q-' + q; }
+
+    const bwEl = document.getElementById('focus-bw');
+    if (bwEl) bwEl.textContent = (s.bwKbps || 0) + ' kbps';
+
+    const lEl = document.getElementById('focus-loss');
+    if (lEl) lEl.textContent = (s.lossPct || '0.0') + '%';
+
+    const rEl = document.getElementById('focus-rtt');
+    if (rEl) rEl.textContent = (s.rttMs || 0) + ' ms';
+
+    const bar = document.getElementById('focus-bw-bar');
+    if (bar) {
+        bar.style.width = Math.min(100, Math.round((s.bwKbps || 0) / 20)) + '%';
+        bar.style.background = q === 'HIGH' ? 'var(--green)'
+                             : q === 'MEDIUM' ? 'var(--yellow)'
+                             : 'var(--red)';
+    }
 }
 
 // ─── Notifications globales ───────────────────────────────────────────────────

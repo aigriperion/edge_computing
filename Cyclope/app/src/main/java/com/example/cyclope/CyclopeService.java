@@ -35,6 +35,7 @@ public class CyclopeService extends Service {
     private native void nativeFlipCamera();
     private native void nativeSetWebRtcCallback(Object cb);
     private native void nativeSetGpsData(double lat, double lon, double alt, float accuracy);
+    private native void nativeSetTargetFps(int fps);
 
     // ── Cycle de vie du service ─────────────────────────────────────────────────
 
@@ -79,8 +80,9 @@ public class CyclopeService extends Service {
 
         // La caméra démarre seulement quand un observateur le demande (request-offer)
         webRtcClient.setCaptureListener(new WebRtcClient.CaptureListener() {
-            @Override public void onStartCapture() { nativeStart(); }
-            @Override public void onStopCapture()  { nativeStop(); }
+            @Override public void onStartCapture()        { nativeStart(); }
+            @Override public void onStopCapture()         { nativeStop(); }
+            @Override public void onSetTargetFps(int fps) { nativeSetTargetFps(fps); }
         });
 
         CaptationNotification.sListener = (appName, title, text) -> {

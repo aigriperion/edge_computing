@@ -132,3 +132,11 @@ Java_com_example_cyclope_CyclopeService_nativeSetGpsData(
         jdouble lat, jdouble lon, jdouble alt, jfloat accuracy) {
     app.SetGpsData(lat, lon, alt, accuracy);
 }
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_example_cyclope_CyclopeService_nativeSetTargetFps(
+        JNIEnv *env, jobject thiz, jint fps) {
+    app.SetTargetFps((int)fps);
+    LOGD("CyclopeService: target fps → %d", (int)fps);
+}

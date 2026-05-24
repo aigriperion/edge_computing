@@ -131,6 +131,7 @@ Browser                         Serveur                        Android
 ```
 NDK C++ (CameraLoop)
    │  frame YUV NV21 (byte[])
+   │  throttling : skip si intervalle < 1s/m_target_fps  ← ABR
    │  → onNdkFrame() [thread NDK]
    ▼
 WebRtcClient.onNdkFrame()
@@ -140,6 +141,7 @@ WebRtcClient.onNdkFrame()
    ▼
 Pipeline WebRTC interne (libwebrtc)
    │  encode H.264/VP8
+   │  bitrate limité par RtpSender.setParameters()  ← ABR
    │  RTP packets
    ▼
 Browser (via P2P WebRTC)
@@ -152,7 +154,68 @@ Browser (via P2P WebRTC)
 
 ---
 
-### 2.5 Flux GPS
+### 2.5 Adaptive Bitrate — ABR (flux vidéo uniquement)
+
+L'ABR ajuste la qualité vidéo en temps réel en fonction des conditions réseau mesurées par WebRTC.
+
+```
+statsScheduler (1s)
+   │  sendStats() → peerConnection.getStats()  [asynchrone]
+   ▼
+processNetworkStats()  [thread WebRTC interne]
+   │  lit "candidate-pair" → availableOutgoingBitrate
+   │  lit "remote-inbound-rtp" → fractionLost, currentRoundTripTime
+   │  → executor.execute(evaluateAndApplyQuality)
+   ▼
+evaluateAndApplyQuality()  [WebRtcClient.executor]
+   │  state machine : HIGH / MEDIUM / LOW
+   │  downgrade → immédiat
+   │  upgrade   → après 5 secondes stables (hysteresis)
+   ▼
+applyQualityProfile()
+   ├── RtpSender.setParameters(maxBitrateBps)  → limite encodeur H.264
+   └── captureListener.onSetTargetFps(fps)
+              ↓ JNI
+       CV_Manager::SetTargetFps(fps)
+              ↓ CameraLoop
+       skip frame si intervalle < 1s/target_fps
+```
+
+**Niveaux de qualité** :
+
+| Niveau | Condition de déclenchement | Bitrate max | FPS NDK |
+|--------|---------------------------|-------------|---------|
+| HIGH   | bw > 1 200 kbps ET perte < 5% | 2 000 kbps | 30 |
+| MEDIUM | bw 400–1 200 kbps OU perte 5–10% | 600 kbps | 15 |
+| LOW    | bw < 400 kbps OU perte > 10%    | 200 kbps | 10 |
+
+**Stats envoyées via DataChannel** (JSON, 1×/seconde) :
+```json
+{
+  "type":     "stats",
+  "fps":      25,
+  "width":    1280,
+  "height":   720,
+  "quality":  "HIGH",
+  "bw_kbps":  1450,
+  "loss_pct": "0.5",
+  "rtt_ms":   12
+}
+```
+
+**Fichiers concernés** :
+
+| Fichier | Rôle ABR |
+|---------|----------|
+| `WebRtcClient.java` | State machine, lecture stats, `RtpSender.setParameters()` |
+| `CV_Manager.h/.cpp` | `m_target_fps`, `m_last_sent_frame_ns`, `SetTargetFps()` |
+| `native-lib.cpp` | JNI `nativeSetTargetFps` |
+| `CyclopeService.java` | Native déclaration + `onSetTargetFps` override |
+| `index.html` | Affichage qualité / bw / perte / RTT dans focus panel |
+
+---
+
+### 2.7 Flux GPS
 
 ```
 Android OS (LocationManager)
@@ -176,7 +239,7 @@ Browser
 
 ---
 
-### 2.6 Flux notifications
+### 2.8 Flux notifications
 
 ```
 Android OS (NotificationListenerService)
@@ -203,7 +266,7 @@ Browser
 
 ---
 
-### 2.7 Commandes Browser → Android
+### 2.9 Commandes Browser → Android
 
 | Commande | JSON | Effet sur Android |
 |---|---|---|
@@ -263,6 +326,8 @@ Browser
 | Track vidéo | `VideoSource` + `VideoTrack` (WebRTC Java) |
 | Rendu browser | `<video>` HTML5, `RTCPeerConnection.ontrack` |
 | Flip caméra | `nativeFlipCamera()` JNI → switch camera NDK |
+| **ABR bitrate** | `RtpSender.setParameters(maxBitrateBps)` — limite l'encodeur H.264 |
+| **ABR FPS** | `nativeSetTargetFps()` JNI → `CV_Manager::m_target_fps` → skip frames dans `CameraLoop` |
 
 **LED caméra** : allumée uniquement quand `nativeStart()` est appelé (i.e. quand un observateur est actif). Éteinte sur `nativeStop()` (déconnexion, `stop-stream`, ICE failed).
 
@@ -420,3 +485,90 @@ npm start     # écoute sur 0.0.0.0:3000, broadcast UDP sur :41234
 
 ### Dashboard
 Ouvrir `http://IP_DU_PC:3000` dans un navigateur sur le même réseau.
+
+---
+
+## 10. Tester l'ABR (Adaptive Bitrate)
+
+### 10.1 Prérequis
+
+- Serveur Node.js démarré (`npm start` dans `server/`)
+- App installée et agent démarré sur le téléphone
+- Dashboard ouvert dans un navigateur — le téléphone doit apparaître dans la liste
+
+### 10.2 Vérifier que l'ABR fonctionne : Logcat
+
+Dans Android Studio ou via `adb logcat` :
+
+```bash
+adb logcat -s WebRtcClient:I
+```
+
+En conditions normales (WiFi rapide) :
+```
+WebRtcClient: ABR → HIGH (2000 kbps, 30 fps)
+```
+
+En dégradant le réseau (voir ci-dessous) :
+```
+WebRtcClient: ABR → MEDIUM (600 kbps, 15 fps)
+WebRtcClient: ABR → LOW (200 kbps, 10 fps)
+```
+
+Après 5 secondes de bonne connectivité :
+```
+WebRtcClient: ABR → MEDIUM (600 kbps, 15 fps)
+WebRtcClient: ABR → HIGH (2000 kbps, 30 fps)
+```
+
+En parallèle, pour observer le throttling NDK :
+```bash
+adb logcat -s CameraNDK:D
+# → CyclopeService: target fps → 15
+```
+
+### 10.3 Provoquer une dégradation réseau
+
+**Méthode 1 — Throttling WiFi sur le routeur (recommandé)**
+> Limiter la bande passante du téléphone à 300 kbps dans les paramètres QoS du routeur.
+> Le niveau doit passer de HIGH → MEDIUM → LOW en quelques secondes.
+
+**Méthode 2 — Mode avion + reconnexion**
+> Activer puis désactiver le mode avion → la reconnexion ICE en 4G vs WiFi déclenche souvent un cycle ABR observable.
+
+**Méthode 3 — Android Developer Options**
+> `Paramètres → Options pour les développeurs → Simulate network throttle` → sélectionner `EDGE (2G)` ou `3G`.
+> Le niveau ABR passe à MEDIUM ou LOW dans les 2 secondes.
+
+**Méthode 4 — `tc` Linux (si le serveur est sur Linux)**
+```bash
+# Limiter à 300kbps sur l'interface réseau du serveur
+sudo tc qdisc add dev eth0 root tbf rate 300kbit burst 32kbit latency 400ms
+# Supprimer la limitation
+sudo tc qdisc del dev eth0 root
+```
+
+### 10.4 Vérifier dans le dashboard
+
+Cliquer sur la tile du téléphone pour ouvrir la **vue focus**, puis observer le panneau droit :
+
+| Champ | Valeur attendue en WiFi | Valeur attendue en 3G simulé |
+|-------|------------------------|------------------------------|
+| QUALITÉ | `HIGH` (vert) | `MEDIUM` (jaune) ou `LOW` (rouge) |
+| BANDE PASSANTE | > 1200 kbps | < 400 kbps |
+| PERTE PAQUETS | < 1% | > 5% |
+| RTT | < 50 ms | > 100 ms |
+| Barre bande passante | Verte, large | Rouge, étroite |
+
+### 10.5 Vérifier que le FPS baisse visuellement
+
+En passant à MEDIUM (15 fps) ou LOW (10 fps), le flux vidéo dans le navigateur doit être **notablement moins fluide**. Le champ "FPS envoyés" dans le focus panel passe de ~30 à ~15 ou ~10.
+
+### 10.6 Points de débogage courants
+
+| Symptôme | Cause probable | Solution |
+|---------|---------------|----------|
+| QUALITÉ reste à `HIGH` même en 3G | `availableOutgoingBitrate` absent des stats ICE (stats pas encore stables) | Attendre 5–10s après connexion |
+| FPS ne baisse pas visuellement | `nativeSetTargetFps()` non atteint — vérifier Logcat `CameraNDK` | Vérifier que `CaptureListener.onSetTargetFps` est overridé dans `CyclopeService` |
+| Stats `bw_kbps = 0` dans le dashboard | `candidate-pair` pas encore sélectionné | Normal les 2 premières secondes de connexion |
+| Upgrade trop lent | `UPGRADE_STABLE_THRESHOLD = 5` → 5 secondes minimum | Modifier la constante dans `WebRtcClient.java` pour les tests |

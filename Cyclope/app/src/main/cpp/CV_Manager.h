@@ -46,6 +46,7 @@ public:
     void ReleaseMats();
     void SetGpsData(double lat, double lon, double alt, float accuracy);
     void SetFrameCallback(JavaVM *jvm, jobject cb, JNIEnv *env);
+    void SetTargetFps(int fps);
 
 private:
     ANativeWindow *m_native_window;
@@ -90,6 +91,10 @@ private:
     double m_gps_alt{0.0};
     float  m_gps_acc{0.0f};
     std::atomic<bool> m_gps_valid{false};
+
+    // ABR — throttling FPS côté NDK
+    std::atomic<int> m_target_fps{30};
+    int64_t          m_last_sent_frame_ns{0};
 
     JavaVM              *m_jvm{nullptr};
     jobject              m_frame_cb{nullptr};

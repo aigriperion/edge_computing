@@ -22,16 +22,31 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.webrtc.RTCStats;
+import org.webrtc.RTCStatsReport;
+import org.webrtc.RtpParameters;
+import org.webrtc.RtpSender;
 
 public class WebRtcClient {
 
     private static final String TAG = "WebRtcClient";
+
+    public enum QualityLevel {
+        HIGH  (2_000_000, 30),
+        MEDIUM(  600_000, 15),
+        LOW   (  200_000, 10);
+
+        public final int maxBitrateBps;
+        public final int targetFps;
+        QualityLevel(int b, int f) { maxBitrateBps = b; targetFps = f; }
+    }
 
     private static final List<PeerConnection.IceServer> ICE_SERVERS = Arrays.asList(
             PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
@@ -42,6 +57,7 @@ public class WebRtcClient {
     public interface CaptureListener {
         void onStartCapture();
         void onStopCapture();
+        void onSetTargetFps(int fps);
     }
 
     private final Context context;
@@ -54,6 +70,15 @@ public class WebRtcClient {
     private volatile int lastFrameWidth  = 0;
     private volatile int lastFrameHeight = 0;
     private ScheduledFuture<?> statsFuture;
+
+    // ABR
+    private volatile QualityLevel currentQuality = QualityLevel.HIGH;
+    private int     stableSeconds = 0;
+    private static final int UPGRADE_STABLE_THRESHOLD = 5;
+    private RtpSender videoSender;
+    private volatile double lastBwBps   = 0;
+    private volatile double lastLossPct = 0;
+    private volatile double lastRttMs   = 0;
 
     private EglBase eglBase;
     private PeerConnectionFactory factory;
@@ -303,7 +328,7 @@ public class WebRtcClient {
             return;
         }
 
-        peerConnection.addTrack(captationVideo.getTrack(), Collections.singletonList("s0"));
+        videoSender = peerConnection.addTrack(captationVideo.getTrack(), Collections.singletonList("s0"));
         peerConnection.addTrack(captationSon.getTrack(),   Collections.singletonList("s0"));
 
         DataChannel.Init dcInit = new DataChannel.Init();
@@ -376,16 +401,104 @@ public class WebRtcClient {
         if (dataChannel == null) return;
         try {
             if (dataChannel.state() != DataChannel.State.OPEN) return;
+
             JSONObject json = new JSONObject();
-            json.put("type",   "stats");
-            json.put("fps",    frameCount.getAndSet(0));
-            json.put("width",  lastFrameWidth);
-            json.put("height", lastFrameHeight);
-            byte[] bytes = json.toString().getBytes();
-            dataChannel.send(new DataChannel.Buffer(ByteBuffer.wrap(bytes), false));
+            json.put("type",     "stats");
+            json.put("fps",      frameCount.getAndSet(0));
+            json.put("width",    lastFrameWidth);
+            json.put("height",   lastFrameHeight);
+            json.put("quality",  currentQuality.name());
+            json.put("bw_kbps",  (int)(lastBwBps / 1000));
+            json.put("loss_pct", String.format("%.1f", lastLossPct));
+            json.put("rtt_ms",   (int) lastRttMs);
+            dataChannel.send(new DataChannel.Buffer(
+                    ByteBuffer.wrap(json.toString().getBytes()), false));
+
+            // Déclencher la collecte asynchrone des vraies stats réseau WebRTC
+            PeerConnection pc = peerConnection;
+            if (pc != null) pc.getStats(this::processNetworkStats);
+
         } catch (Exception e) {
             Log.e(TAG, "sendStats", e);
         }
+    }
+
+    // Appelé sur le thread interne WebRTC — ne pas accéder à peerConnection/videoSender ici
+    private void processNetworkStats(RTCStatsReport report) {
+        double bwBps  = 0;
+        double loss   = 0;
+        double rttMs  = 0;
+        boolean hasBw = false;
+
+        for (RTCStats stats : report.getStatsMap().values()) {
+            Map<String, Object> m = stats.getMembers();
+
+            if ("candidate-pair".equals(stats.getType())) {
+                Object bw = m.get("availableOutgoingBitrate");
+                if (bw instanceof Number) { bwBps = ((Number) bw).doubleValue(); hasBw = true; }
+                Object rtt = m.get("currentRoundTripTime");
+                if (rtt instanceof Number) { rttMs = ((Number) rtt).doubleValue() * 1000; }
+            }
+
+            if ("remote-inbound-rtp".equals(stats.getType())) {
+                Object mediaType = m.get("mediaType");
+                if ("video".equals(mediaType)) {
+                    Object fl = m.get("fractionLost");
+                    if (fl instanceof Number) { loss = ((Number) fl).doubleValue() * 100; }
+                }
+            }
+        }
+
+        if (!hasBw) return;
+        lastBwBps   = bwBps;
+        lastLossPct = loss;
+        lastRttMs   = rttMs;
+
+        final double fb = bwBps, fl = loss;
+        executor.execute(() -> evaluateAndApplyQuality(fb, fl));
+    }
+
+    // Exécuté sur l'executor — accès à videoSender et captureListener sécurisé
+    private void evaluateAndApplyQuality(double bwBps, double lossPct) {
+        QualityLevel target;
+        if      (bwBps < 400_000   || lossPct > 10.0) target = QualityLevel.LOW;
+        else if (bwBps < 1_200_000 || lossPct > 5.0)  target = QualityLevel.MEDIUM;
+        else                                            target = QualityLevel.HIGH;
+
+        if (target.ordinal() > currentQuality.ordinal()) {
+            // Dégradation → immédiate
+            applyQualityProfile(target);
+            stableSeconds = 0;
+        } else if (target.ordinal() < currentQuality.ordinal()) {
+            // Amélioration → attendre N secondes stables
+            stableSeconds++;
+            if (stableSeconds >= UPGRADE_STABLE_THRESHOLD) {
+                applyQualityProfile(target);
+                stableSeconds = 0;
+            }
+        } else {
+            stableSeconds++;
+        }
+    }
+
+    private void applyQualityProfile(QualityLevel level) {
+        if (level == currentQuality) return;
+        currentQuality = level;
+        Log.i(TAG, "ABR → " + level.name() + " (" + level.maxBitrateBps / 1000 + " kbps, " + level.targetFps + " fps)");
+
+        // Limiter le bitrate de l'encodeur H.264 via RTP parameters
+        if (videoSender != null) {
+            RtpParameters params = videoSender.getParameters();
+            if (params != null && params.encodings != null) {
+                for (RtpParameters.Encoding enc : params.encodings) {
+                    enc.maxBitrateBps = level.maxBitrateBps;
+                }
+                videoSender.setParameters(params);
+            }
+        }
+
+        // Throttler les frames dans le NDK
+        if (captureListener != null) captureListener.onSetTargetFps(level.targetFps);
     }
 
     // Ferme proprement la PeerConnection et le DataChannel — doit tourner sur l'executor
@@ -401,6 +514,7 @@ public class WebRtcClient {
             peerConnection.dispose();
             peerConnection = null;
         }
+        videoSender = null;
         offerInProgress = false;
     }
 

@@ -352,7 +352,8 @@
       <div class="kv"><span class="k">Résolution</span><span class="v" id="focus-res">—</span></div>
       <div class="kv"><span class="k">ICE</span><span class="v green" id="focus-ice">—</span></div>
       <div class="kv"><span class="k">QUALITÉ</span>       <span class="v" id="focus-quality">—</span></div>
-      <div class="kv"><span class="k">BANDE PASSANTE</span><span class="v" id="focus-bw">— kbps</span></div>
+      <div class="kv"><span class="k">BW reçue (browser)</span><span class="v" id="focus-bw">— kbps</span></div>
+      <div class="kv"><span class="k">BW estimée (Android)</span><span class="v" id="focus-bw-android">— kbps</span></div>
       <div class="kv"><span class="k">PERTE PAQUETS</span> <span class="v" id="focus-loss">—%</span></div>
       <div class="kv"><span class="k">RTT</span>           <span class="v" id="focus-rtt">— ms</span></div>
       <div class="abr-bar"><div class="abr-fill" id="focus-bw-bar" style="width:0%"></div></div>
@@ -847,9 +848,7 @@ async function handleOffer(deviceId, msg) {
                     if (msg.width)   dev.stats.width   = msg.width;
                     if (msg.height)  dev.stats.height  = msg.height;
                     if (msg.quality) dev.stats.quality = msg.quality;
-                    dev.stats.bwKbps  = msg.bw_kbps  || 0;
-                    dev.stats.lossPct = msg.loss_pct || '0.0';
-                    dev.stats.rttMs   = msg.rtt_ms   || 0;
+                    dev.stats.bwAndroidKbps = msg.bw_kbps || 0; // estimation GCC Android
                     updateTileStats(deviceId);
                     if (focusedId === deviceId) updateFocusStats();
                 } else {
@@ -883,18 +882,34 @@ function startStatsPolling(id) {
     stopStatsPolling(id);
     const dev = devices.get(id);
     if (!dev) return;
-    let lastDecoded = 0;
+    let lastDecoded = 0, lastBytes = 0, lastPktsLost = 0, lastPktsReceived = 0;
     dev.statsInterval = setInterval(async () => {
         if (!dev.pc) return;
         try {
             const report = await dev.pc.getStats();
             report.forEach(r => {
                 if (r.type === 'inbound-rtp' && r.kind === 'video') {
+                    // FPS reçus
                     const decoded = r.framesDecoded || 0;
                     dev.stats.fpsIn = Math.max(0, decoded - lastDecoded);
                     lastDecoded = decoded;
-                    if (r.frameWidth  && !dev.stats.width)  dev.stats.width  = r.frameWidth;
-                    if (r.frameHeight && !dev.stats.height) dev.stats.height = r.frameHeight;
+                    // Débit réel reçu
+                    const bytes = r.bytesReceived || 0;
+                    dev.stats.bwKbps = Math.round((bytes - lastBytes) * 8 / 1000);
+                    lastBytes = bytes;
+                    // Perte de paquets (delta sur la fenêtre d'1s)
+                    const pktsLost     = r.packetsLost     || 0;
+                    const pktsReceived = r.packetsReceived || 0;
+                    const deltaPkts    = (pktsReceived - lastPktsReceived) + (pktsLost - lastPktsLost);
+                    const deltaLost    = pktsLost - lastPktsLost;
+                    dev.stats.lossPct  = deltaPkts > 0
+                        ? (deltaLost / deltaPkts * 100).toFixed(1)
+                        : '0.0';
+                    lastPktsLost     = pktsLost;
+                    lastPktsReceived = pktsReceived;
+                }
+                if (r.type === 'candidate-pair' && r.nominated) {
+                    dev.stats.rttMs = Math.round((r.currentRoundTripTime || 0) * 1000);
                 }
             });
         } catch {}
@@ -938,6 +953,9 @@ function updateFocusStats() {
     const bwEl = document.getElementById('focus-bw');
     if (bwEl) bwEl.textContent = (s.bwKbps || 0) + ' kbps';
 
+    const bwAndroidEl = document.getElementById('focus-bw-android');
+    if (bwAndroidEl) bwAndroidEl.textContent = (s.bwAndroidKbps != null ? s.bwAndroidKbps : '—') + ' kbps';
+
     const lEl = document.getElementById('focus-loss');
     if (lEl) lEl.textContent = (s.lossPct || '0.0') + '%';
 
@@ -946,7 +964,7 @@ function updateFocusStats() {
 
     const bar = document.getElementById('focus-bw-bar');
     if (bar) {
-        bar.style.width = Math.min(100, Math.round((s.bwKbps || 0) / 20)) + '%';
+        bar.style.width = Math.min(100, Math.round((s.bwKbps || 0) / 40)) + '%';
         bar.style.background = q === 'HIGH' ? 'var(--green)'
                              : q === 'MEDIUM' ? 'var(--yellow)'
                              : 'var(--red)';

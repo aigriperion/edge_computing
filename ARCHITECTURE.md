@@ -46,12 +46,21 @@ Serveur Node.js avec Express + WebSocket.
 - **Rôle** : relais de signalisation WebRTC entre les Androids et le browser. Ne voit jamais le flux vidéo/audio.
 - **Port** : 3000 (HTTP + WebSocket)
 - **Registry** : `peers['browser']` + `peers[deviceId]`
+- **Meta tracking** : objet `meta[deviceId]` — `{ name, connectedAt, lastMsgAt, ip, msgCount }` — mis à jour à chaque message entrant
+- **Crash reports** : reçoit `{ type:"crash-report" }` d'un Android, loggue dans la console avec stack trace, relaie au browser
 - **UDP broadcast** : envoie `{ type: "cyclope-server", port: 3000 }` toutes les 2 secondes sur l'adresse broadcast de chaque interface réseau (ex. `192.168.1.255:41234`)
 - **Endpoint HTTP** : `GET /cyclope` retourne le JSON de découverte (fallback si UDP bloqué)
 
 ### 1.3 Dashboard Web (`server/public/index.html`)
 
 SPA vanilla JS, thème dark terminal, aucune dépendance sauf **Leaflet.js** (cartographie).
+
+Fonctionnalités clés du dashboard :
+- Grille multi-appareils adaptative (1→plein écran, 2→2 col, 3→3 col, 4→2×2, 5-6→3×2)
+- **Focus panel** : vidéo plein écran + panneau de télémétrie complet (qualité, bande passante, FPS, résolution, perte paquets, RTT, GPS, notifications)
+- **Barre bande passante** : visualisation graphique color-codée (verte/jaune/rouge) mise à jour en temps réel depuis les stats DataChannel
+- **Mesure FPS côté browser** : `statsInterval` lit `inbound-rtp` via `getStats()` → affiche FPS reçus indépendamment des FPS envoyés par l'Android
+- **Rapport de crash** : réception et affichage des crash reports Android relayés via WebSocket
 
 ---
 
@@ -189,7 +198,7 @@ applyQualityProfile()
 | MEDIUM | bw 400–1 200 kbps OU perte 5–10% | 600 kbps | 15 |
 | LOW    | bw < 400 kbps OU perte > 10%    | 200 kbps | 10 |
 
-**Stats envoyées via DataChannel** (JSON, 1×/seconde) :
+**Stats envoyées via DataChannel** (JSON, 1×/seconde depuis l'Android) :
 ```json
 {
   "type":     "stats",
@@ -203,6 +212,12 @@ applyQualityProfile()
 }
 ```
 
+**Stats mesurées côté browser** (indépendantes, 1×/seconde) :
+- `statsInterval` démarre quand la PeerConnection est établie
+- Lit `inbound-rtp` via `pc.getStats()` — champ `framesDecoded` → delta = **FPS reçus**
+- Lit `frameWidth` / `frameHeight` si non déjà renseignés par le DataChannel
+- Permet de détecter un problème de décodage côté browser indépendamment de l'encodage Android
+
 **Fichiers concernés** :
 
 | Fichier | Rôle ABR |
@@ -212,6 +227,35 @@ applyQualityProfile()
 | `native-lib.cpp` | JNI `nativeSetTargetFps` |
 | `CyclopeService.java` | Native déclaration + `onSetTargetFps` override |
 | `index.html` | Affichage qualité / bw / perte / RTT dans focus panel |
+
+---
+
+### 2.6 Système de crash report
+
+```
+Android crash (thread quelconque)
+   │  Thread.UncaughtExceptionHandler [installé au onCreate]
+   │  → getSharedPreferences("cyclope_crashes")
+   │      .putString("crash_msg",   ex.toString())
+   │      .putString("crash_trace", stackTrace)
+   │      .putLong  ("crash_ts",    System.currentTimeMillis())
+   ▼
+Redémarrage Android (prochain onConnected SignalingClient)
+   │  sendPendingCrashReport()
+   │  → lit SharedPreferences → { type:"crash-report", msg, trace, ts }
+   │  → signalingClient.send() [WebSocket]
+   │  → prefs.edit().remove(...) [efface après envoi]
+   ▼
+Serveur
+   │  loggue avec stack trace (8 lignes max)
+   │  → relaie au browser : { type:"crash-report", fromId, msg, trace, ts }
+   ▼
+Browser
+   │  handleSignaling case 'crash-report'
+   │  → log panel (ligne rouge)
+```
+
+**Garantie** : le crash est persisté avant que le process meure — envoyé lors de la reconnexion suivante, même si l'app est forcée à fermer par le système.
 
 ---
 
@@ -328,6 +372,8 @@ Browser
 | Flip caméra | `nativeFlipCamera()` JNI → switch camera NDK |
 | **ABR bitrate** | `RtpSender.setParameters(maxBitrateBps)` — limite l'encodeur H.264 |
 | **ABR FPS** | `nativeSetTargetFps()` JNI → `CV_Manager::m_target_fps` → skip frames dans `CameraLoop` |
+| **Stats DataChannel** | `sendStats()` — JSON 1×/s : fps, résolution, quality, bw_kbps, loss_pct, rtt_ms |
+| **Crash handler** | `installCrashHandler()` — persiste crash dans SharedPreferences avant mort du process |
 
 **LED caméra** : allumée uniquement quand `nativeStart()` est appelé (i.e. quand un observateur est actif). Éteinte sur `nativeStop()` (déconnexion, `stop-stream`, ICE failed).
 
@@ -393,6 +439,7 @@ Browser
 | `offer` | `sdp` | SDP offer WebRTC |
 | `ice-candidate` | `candidate{sdpMid, sdpMLineIndex, candidate}` | Candidat ICE |
 | `notification` | `app, title, text, ts` | Notification interceptée |
+| `crash-report` | `msg, trace, ts` | Rapport de crash (envoyé à la reconnexion suivante) |
 
 ### Browser → Serveur → Android (relay via `targetId`)
 
@@ -411,6 +458,7 @@ Browser
 | `registered` | `role` | Confirmation enregistrement |
 | `peer-joined` | `id, name` | Nouvel Android connecté |
 | `peer-left` | `id` | Android déconnecté |
+| `crash-report` | `fromId, msg, trace, ts` | Rapport de crash relayé depuis un Android |
 
 ### Serveur → Android
 
@@ -556,9 +604,14 @@ Cliquer sur la tile du téléphone pour ouvrir la **vue focus**, puis observer l
 |-------|------------------------|------------------------------|
 | QUALITÉ | `HIGH` (vert) | `MEDIUM` (jaune) ou `LOW` (rouge) |
 | BANDE PASSANTE | > 1200 kbps | < 400 kbps |
+| Barre bande passante | Verte, remplie | Rouge/jaune, étroite |
+| FPS reçus (browser) | ~30 fps | ~10–15 fps |
+| FPS envoyés (Android) | ~30 fps | ~10–15 fps |
+| Résolution | 1280 × 720 (ou native) | idem (ABR ne change pas la résolution) |
 | PERTE PAQUETS | < 1% | > 5% |
 | RTT | < 50 ms | > 100 ms |
-| Barre bande passante | Verte, large | Rouge, étroite |
+
+> La **barre bande passante** change de couleur selon le niveau ABR : verte (HIGH), jaune (MEDIUM), rouge (LOW). Elle est normalisée sur 2000 kbps (100% = 2000 kbps).
 
 ### 10.5 Vérifier que le FPS baisse visuellement
 

@@ -71,8 +71,8 @@ public class WebRtcClient {
     private volatile int lastFrameHeight = 0;
     private ScheduledFuture<?> statsFuture;
 
-    // ABR
-    private volatile QualityLevel currentQuality = QualityLevel.HIGH;
+    // ABR — null au démarrage pour forcer l'application du profil à la première évaluation
+    private volatile QualityLevel currentQuality = null;
     private int     stableSeconds = 0;
     private static final int UPGRADE_STABLE_THRESHOLD = 5;
     private RtpSender videoSender;
@@ -407,7 +407,7 @@ public class WebRtcClient {
             json.put("fps",      frameCount.getAndSet(0));
             json.put("width",    lastFrameWidth);
             json.put("height",   lastFrameHeight);
-            json.put("quality",  currentQuality.name());
+            json.put("quality",  currentQuality != null ? currentQuality.name() : "INIT");
             json.put("bw_kbps",  (int)(lastBwBps / 1000));
             json.put("loss_pct", String.format("%.1f", lastLossPct));
             json.put("rtt_ms",   (int) lastRttMs);
@@ -465,7 +465,11 @@ public class WebRtcClient {
         else if (bwBps < 1_200_000 || lossPct > 5.0)  target = QualityLevel.MEDIUM;
         else                                            target = QualityLevel.HIGH;
 
-        if (target.ordinal() > currentQuality.ordinal()) {
+        if (currentQuality == null) {
+            // Premier appel : appliquer immédiatement sans attendre
+            applyQualityProfile(target);
+            stableSeconds = 0;
+        } else if (target.ordinal() > currentQuality.ordinal()) {
             // Dégradation → immédiate
             applyQualityProfile(target);
             stableSeconds = 0;
@@ -482,7 +486,7 @@ public class WebRtcClient {
     }
 
     private void applyQualityProfile(QualityLevel level) {
-        if (level == currentQuality) return;
+        if (level == currentQuality) return; // évite les appels redondants hors premier appel
         currentQuality = level;
         Log.i(TAG, "ABR → " + level.name() + " (" + level.maxBitrateBps / 1000 + " kbps, " + level.targetFps + " fps)");
 

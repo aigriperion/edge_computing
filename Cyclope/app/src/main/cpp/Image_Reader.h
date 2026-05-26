@@ -9,6 +9,7 @@
 #include "Util.h"
 #include <media/NdkImageReader.h>
 #include <opencv2/core.hpp>
+#include <vector>
 
 class Image_Reader {
 public:
@@ -68,6 +69,8 @@ public:
      *    Human Rotation (rotated degree related to Phone native orientation
      */
     void SetPresentRotation(int32_t angle);
+
+    void ExtractNV21(AImage *image, std::vector<uint8_t> &nv21);
 
 private:
     int32_t presentRotation_;

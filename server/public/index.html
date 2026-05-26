@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cyclope — Live</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:     #0d0d0d;
+    --panel:  #161616;
+    --border: #2a2a2a;
+    --accent: #00e5ff;
+    --green:  #00e676;
+    --red:    #ff1744;
+    --yellow: #ffd740;
+    --text:   #e0e0e0;
+    --muted:  #666;
+    --hover:  #1e1e1e;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    height: 100dvh;
+    display: grid;
+    grid-template-rows: 48px 1fr 36px;
+    grid-template-columns: 220px 1fr 520px;
+    grid-template-areas:
+      "header  header  header"
+      "devices grid    panel"
+      "footer  footer  footer";
+    overflow: hidden;
+  }
+
+  /* ── HEADER ── */
+  header {
+    grid-area: header;
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    z-index: 1;
+  }
+  .logo { color: var(--accent); font-size: 16px; font-weight: bold; letter-spacing: 3px; }
+  .status-pill {
+    display: flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 12px; border: 1px solid var(--border); font-size: 11px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); transition: background .3s; }
+  .dot.ok   { background: var(--green);  box-shadow: 0 0 6px var(--green); }
+  .dot.warn { background: var(--yellow); }
+  .dot.err  { background: var(--red); }
+  .spacer { flex: 1; }
+  .btn {
+    padding: 6px 12px; background: transparent;
+    border: 1px solid var(--accent); color: var(--accent);
+    font-family: inherit; font-size: 11px; cursor: pointer;
+    border-radius: 4px; letter-spacing: 1px; transition: background .2s; white-space: nowrap;
+  }
+  .btn:hover:not(:disabled) { background: rgba(0,229,255,.1); }
+  .btn:disabled { opacity: .3; cursor: default; border-color: var(--muted); color: var(--muted); }
+  .btn.danger { border-color: var(--red); color: var(--red); }
+  .btn.danger:hover:not(:disabled) { background: rgba(255,23,68,.1); }
+
+  /* Volume */
+  .vol-wrap { display: flex; align-items: center; gap: 6px; }
+  .vol-wrap label { font-size: 10px; color: var(--muted); }
+  input[type=range].vol-slider {
+    -webkit-appearance: none;
+    width: 72px; height: 3px;
+    background: var(--border); border-radius: 2px; outline: none; cursor: pointer;
+  }
+  input[type=range].vol-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 12px; height: 12px;
+    border-radius: 50%; background: var(--accent); cursor: pointer;
+  }
+
+  /* ── DEVICE LIST ── */
+  .devices-panel {
+    grid-area: devices;
+    background: var(--panel); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .devices-header {
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    font-size: 10px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .device-count { background: var(--accent); color: #000; border-radius: 10px; padding: 1px 6px; font-size: 10px; font-weight: bold; }
+  .devices-list { flex: 1; overflow-y: auto; }
+  .device-card {
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    cursor: pointer; transition: background .15s;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .device-card:hover:not(.offline) { background: var(--hover); }
+  .device-card.watching { border-left: 3px solid var(--green); padding-left: 11px; }
+  .device-card.offline  { opacity: .4; cursor: default; }
+  .device-name { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .device-id   { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .device-meta { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--muted); }
+  .device-dot  { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .device-dot.online    { background: var(--green);  box-shadow: 0 0 4px var(--green); }
+  .device-dot.streaming { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+  .no-devices { padding: 24px 14px; color: var(--muted); font-size: 11px; text-align: center; line-height: 1.6; }
+
+  /* ── VIDEO GRID ── */
+  .video-grid {
+    grid-area: grid;
+    display: grid; background: #000; gap: 2px; overflow: hidden;
+  }
+  .grid-placeholder {
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 10px;
+    color: var(--muted); font-size: 14px; letter-spacing: 1px; height: 100%;
+  }
+  .grid-placeholder span { font-size: 32px; }
+
+  /* Tile */
+  .tile { position: relative; background: #0a0a0a; overflow: hidden; cursor: pointer; }
+  .tile video { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .tile-header {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding: 8px 10px 20px;
+    background: linear-gradient(to bottom, rgba(0,0,0,.75), transparent);
+    display: flex; align-items: center; gap: 8px; pointer-events: none;
+  }
+  .tile-name { color: var(--accent); font-size: 11px; letter-spacing: 1px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile-ice  { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+  .tile-fps  { font-size: 10px; color: var(--yellow); flex-shrink: 0; }
+  .tile-ice.ok { color: var(--green); }
+  .tile-gps {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 20px 10px 8px;
+    background: linear-gradient(to top, rgba(0,0,0,.7), transparent);
+    font-size: 10px; color: rgba(255,255,255,.75); pointer-events: none; display: none;
+  }
+  .tile-gps .acc { color: rgba(255,255,255,.45); font-size: 9px; }
+  .tile-hint {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,229,255,.06);
+    color: var(--accent); font-size: 11px; letter-spacing: 1px;
+    opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  .tile:hover .tile-hint { opacity: 1; }
+  .tile-controls {
+    position: absolute; top: 6px; right: 6px;
+    display: flex; gap: 4px; opacity: 0; transition: opacity .2s;
+  }
+  .tile:hover .tile-controls { opacity: 1; }
+  .tile-btn {
+    width: 26px; height: 26px; background: rgba(0,0,0,.65);
+    border: 1px solid var(--border); color: var(--text); font-size: 13px; cursor: pointer;
+    border-radius: 4px; display: flex; align-items: center; justify-content: center;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .tile-btn:hover { background: rgba(0,229,255,.2); border-color: var(--accent); color: var(--accent); }
+  .tile-btn.close:hover { background: rgba(255,23,68,.2); border-color: var(--red); color: var(--red); }
+  .tile-waiting {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 8px;
+    color: var(--muted); font-size: 12px; letter-spacing: 1px; pointer-events: none;
+  }
+  .tile-waiting span { font-size: 24px; }
+
+  /* ── SIDE PANEL ── */
+  aside {
+    grid-area: panel; border-left: 1px solid var(--border);
+    background: var(--panel); display: flex; flex-direction: column; overflow: hidden;
+  }
+  .section { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .section-title { font-size: 10px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; }
+  .notif-list { overflow-y: auto; max-height: 220px; }
+  .no-notifs  { padding: 10px 0; color: var(--muted); font-size: 11px; text-align: center; }
+  .notif-item { padding: 7px 0; border-bottom: 1px solid var(--border); }
+  .notif-item:last-child { border-bottom: none; }
+  .notif-app   { font-size: 10px; color: var(--accent); letter-spacing: 1px; }
+  .notif-title { font-size: 12px; color: var(--text); margin: 2px 0; }
+  .notif-body  { font-size: 11px; color: var(--muted); }
+  .notif-meta  { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .log-area {
+    flex: 1; padding: 10px 14px; overflow-y: auto;
+    display: flex; flex-direction: column-reverse;
+  }
+  .log-line       { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+  .log-line.info  { color: var(--text); }
+  .log-line.ok    { color: var(--green); }
+  .log-line.error { color: var(--red); }
+
+  /* ── FOOTER ── */
+  footer {
+    grid-area: footer; border-top: 1px solid var(--border);
+    background: var(--panel); display: flex; align-items: center;
+    padding: 0 14px; gap: 16px; font-size: 11px; color: var(--muted);
+  }
+  footer .sep { color: var(--border); }
+
+  /* ── FOCUS OVERLAY ── */
+  .focus-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    display: none;
+    grid-template-rows: 52px 1fr;
+    grid-template-columns: 1fr 420px;
+    grid-template-areas:
+      "fhead fhead"
+      "fvid  fpanel";
+    background: var(--bg);
+  }
+  .focus-overlay.open { display: grid; }
+
+  .focus-header {
+    grid-area: fhead;
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  .focus-device-name { color: var(--accent); font-size: 14px; letter-spacing: 2px; font-weight: bold; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .focus-video-area {
+    grid-area: fvid;
+    background: #000; position: relative; overflow: hidden;
+  }
+  .focus-video-area video { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+  .focus-panel {
+    grid-area: fpanel;
+    border-left: 1px solid var(--border);
+    background: var(--panel);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .kv { display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .kv .k { color: var(--muted); }
+  .kv .v { color: var(--accent); font-weight: bold; }
+  .kv .v.green { color: var(--green); }
+  .q-HIGH   { color: var(--green);  font-weight: bold; }
+  .q-MEDIUM { color: var(--yellow); font-weight: bold; }
+  .q-LOW    { color: var(--red);    font-weight: bold; }
+  .abr-bar  { height: 3px; border-radius: 2px; background: var(--border); margin-top: 4px; }
+  .abr-fill { height: 100%; border-radius: 2px; transition: width .5s, background .5s; }
+  .coord-big { font-size: 15px; color: var(--accent); margin-bottom: 4px; word-break: break-all; }
+  .maps-link {
+    display: inline-block; margin-top: 6px; color: var(--accent); font-size: 11px;
+    text-decoration: none; border: 1px solid var(--accent); padding: 3px 8px;
+    border-radius: 4px; opacity: .6; transition: opacity .2s;
+  }
+  .maps-link:hover { opacity: 1; }
+
+  /* Leaflet map */
+  #focus-map {
+    height: 240px;
+    margin: 0 -14px 12px;
+    background: #111;
+  }
+  /* fix z-index popup leaflet vs overlay */
+  .leaflet-pane, .leaflet-top, .leaflet-bottom { z-index: 10 !important; }
+  /* attributions discrètes */
+  .leaflet-control-attribution { font-size: 9px !important; opacity: .5; }
+  .focus-notif-list { flex: 1; overflow-y: auto; padding: 0 14px; }
+  .focus-notif-list .notif-item { padding: 7px 0; border-bottom: 1px solid var(--border); }
+  .focus-notif-list .no-notifs  { padding: 14px 0; color: var(--muted); font-size: 11px; text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- ── Grille principale ── -->
+<header>
+  <div class="logo">CYCLOPE</div>
+  <div class="status-pill"><div class="dot" id="dot-sig"></div><span id="lbl-sig">Déconnecté</span></div>
+  <div class="status-pill"><div class="dot" id="dot-gps"></div><span id="lbl-gps">GPS</span></div>
+  <div class="spacer"></div>
+  <div class="vol-wrap">
+    <label for="volume">VOL</label>
+    <input type="range" class="vol-slider" id="volume" min="0" max="1" step="0.05" value="0">
+  </div>
+  <button class="btn danger" id="btn-stop-all" disabled>⏹ Arrêter tous les streams</button>
+  <button class="btn" id="btn-connect">Connecter</button>
+</header>
+
+<div class="devices-panel">
+  <div class="devices-header">
+    <span>Appareils</span>
+    <span class="device-count" id="device-count">0</span>
+  </div>
+  <div class="devices-list" id="devices-list">
+    <div class="no-devices">Aucun appareil<br>connecté</div>
+  </div>
+</div>
+
+<div class="video-grid" id="video-grid">
+  <div class="grid-placeholder"><span>◉</span>Clique sur un appareil pour lancer le flux</div>
+</div>
+
+<aside>
+  <div class="section">
+    <div class="section-title">Notifications</div>
+    <div class="notif-list" id="global-notif-list">
+      <div class="no-notifs">Aucune notification</div>
+    </div>
+  </div>
+  <div class="section"><div class="section-title">Journal</div></div>
+  <div class="log-area" id="log"></div>
+</aside>
+
+<footer>
+  <span id="footer-time">—</span>
+  <span class="sep">|</span>
+  <span>ws://<span id="footer-host">—</span></span>
+  <span class="sep">|</span>
+  <span id="footer-active">0 stream(s) actif(s)</span>
+</footer>
+
+<!-- ── Vue focus (overlay plein écran) ── -->
+<div class="focus-overlay" id="focus-overlay">
+
+  <div class="focus-header">
+    <button class="btn" id="focus-back">← Retour</button>
+    <span class="focus-device-name" id="focus-device-name"></span>
+    <div class="vol-wrap">
+      <label for="focus-volume">VOL</label>
+      <input type="range" class="vol-slider" id="focus-volume" min="0" max="1" step="0.05" value="0">
+    </div>
+    <button class="btn" id="focus-flip">⟳ Flip</button>
+  </div>
+
+  <div class="focus-video-area">
+    <video id="focus-video" autoplay playsinline></video>
+  </div>
+
+  <div class="focus-panel">
+    <!-- GPS -->
+    <div class="section">
+      <div class="section-title">GPS / Position</div>
+      <div id="focus-map"></div>
+      <div class="coord-big" id="focus-lat">—</div>
+      <div class="coord-big" id="focus-lon">—</div>
+      <div class="kv"><span class="k">Altitude</span><span class="v" id="focus-alt">—</span></div>
+      <div class="kv"><span class="k">Précision</span><span class="v" id="focus-acc">—</span></div>
+      <a class="maps-link" id="focus-maps" target="_blank" style="display:none">↗ Voir sur Maps</a>
+    </div>
+    <!-- Stats flux -->
+    <div class="section">
+      <div class="section-title">Flux vidéo</div>
+      <div class="kv"><span class="k">FPS reçus</span><span class="v" id="focus-fps-in">—</span></div>
+      <div class="kv"><span class="k">FPS envoyés</span><span class="v" id="focus-fps-out">—</span></div>
+      <div class="kv"><span class="k">Résolution</span><span class="v" id="focus-res">—</span></div>
+      <div class="kv"><span class="k">ICE</span><span class="v green" id="focus-ice">—</span></div>
+      <div class="kv"><span class="k">QUALITÉ</span>       <span class="v" id="focus-quality">—</span></div>
+      <div class="kv"><span class="k">BW reçue (browser)</span><span class="v" id="focus-bw">— kbps</span></div>
+      <div class="kv"><span class="k">BW estimée (Android)</span><span class="v" id="focus-bw-android">— kbps</span></div>
+      <div class="kv"><span class="k">PERTE PAQUETS</span> <span class="v" id="focus-loss">—%</span></div>
+      <div class="kv"><span class="k">RTT</span>           <span class="v" id="focus-rtt">— ms</span></div>
+      <div class="abr-bar"><div class="abr-fill" id="focus-bw-bar" style="width:0%"></div></div>
+    </div>
+    <!-- Notifications -->
+    <div class="section"><div class="section-title">Notifications</div></div>
+    <div class="focus-notif-list" id="focus-notif-list">
+      <div class="no-notifs">Aucune notification</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+];
+
+// ─── État ────────────────────────────────────────────────────────────────────
+let ws = null, connected = false, focusedId = null;
+let focusMap = null, focusMarker = null, focusCircle = null;
+// id → { name, pc, stream, telemetry, iceState, offline, notifications[] }
+const devices   = new Map();
+const activeSet = new Set();
+
+// ─── DOM ─────────────────────────────────────────────────────────────────────
+const grid        = document.getElementById('video-grid');
+const btnStopAll  = document.getElementById('btn-stop-all');
+const btnConnect  = document.getElementById('btn-connect');
+const volumeEl    = document.getElementById('volume');
+const focusOverlay  = document.getElementById('focus-overlay');
+const focusVideoEl  = document.getElementById('focus-video');
+const focusVolume   = document.getElementById('focus-volume');
+
+// ─── Logs ─────────────────────────────────────────────────────────────────────
+function log(msg, level = 'info') {
+    const el = document.createElement('div');
+    el.className = `log-line ${level}`;
+    el.textContent = `[${new Date().toISOString().substring(11,23)}] ${msg}`;
+    const logEl = document.getElementById('log');
+    logEl.prepend(el);
+    if (logEl.children.length > 100) logEl.lastElementChild.remove();
+}
+function setDot(id, state, label) {
+    const dot = document.getElementById(`dot-${id}`);
+    const lbl = document.getElementById(`lbl-${id}`);
+    if (dot) dot.className = 'dot ' + ({ok:'ok',warn:'warn',err:'err'}[state]||'');
+    if (lbl && label) lbl.textContent = label;
+}
+
+// ─── Grille ───────────────────────────────────────────────────────────────────
+function updateGridLayout() {
+    const n = activeSet.size;
+    if (n === 0) {
+        grid.style.gridTemplateColumns = '1fr';
+        grid.style.gridTemplateRows    = '1fr';
+        document.getElementById('footer-active').textContent = '0 stream(s) actif(s)';
+        btnStopAll.disabled = true;
+        return;
+    }
+    const cols = n === 1 ? 1 : n <= 4 ? 2 : 3;
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    grid.style.gridTemplateRows    = `repeat(${Math.ceil(n/cols)}, 1fr)`;
+    document.getElementById('footer-active').textContent = `${n} stream(s) actif(s)`;
+    btnStopAll.disabled = false;
+}
+
+// ─── Tiles ───────────────────────────────────────────────────────────────────
+function createTile(id) {
+    const ph = grid.querySelector('.grid-placeholder');
+    if (ph) ph.remove();
+
+    const dev  = devices.get(id);
+    const tile = document.createElement('div');
+    tile.className  = 'tile';
+    tile.dataset.id = id;
+    tile.innerHTML  =
+        `<video autoplay playsinline muted></video>
+        <div class="tile-header">
+            <span class="tile-name">${escHtml(dev.name)}</span>
+            <span class="tile-fps"></span>
+            <span class="tile-ice">—</span>
+        </div>
+        <div class="tile-gps">
+            <span class="coords"></span> <span class="acc"></span>
+        </div>
+        <div class="tile-hint">▶ Cliquer pour ouvrir</div>
+        <div class="tile-controls">
+            <button class="tile-btn flip" title="Flip caméra">⟳</button>
+            <button class="tile-btn close" title="Fermer le stream">✕</button>
+        </div>
+        <div class="tile-waiting"><span>◉</span>En attente du flux…</div>`;
+
+    // Clic sur le corps de la tile → focus
+    tile.addEventListener('click', () => openFocus(id));
+
+    tile.querySelector('.flip').addEventListener('click', e => {
+        e.stopPropagation();
+        sendSignal({ type: 'flip-camera', targetId: id });
+        log(`Flip → ${dev.name}`);
+    });
+    tile.querySelector('.close').addEventListener('click', e => {
+        e.stopPropagation();
+        unwatchDevice(id);
+    });
+
+    grid.appendChild(tile);
+}
+
+function removeTile(id) {
+    const tile = grid.querySelector(`.tile[data-id="${id}"]`);
+    if (tile) tile.remove();
+    if (activeSet.size === 0) {
+        grid.innerHTML = '<div class="grid-placeholder"><span>◉</span>Clique sur un appareil pour lancer le flux</div>';
+    }
+}
+
+function resetTile(id) {
+    const tile = grid.querySelector(`.tile[data-id="${id}"]`);
+    if (!tile) return;
+    tile.querySelector('video').srcObject           = null;
+    tile.querySelector('.tile-waiting').style.display = '';
+    tile.querySelector('.tile-gps').style.display     = 'none';
+    tile.querySelector('.tile-ice').textContent       = '—';
+    tile.querySelector('.tile-ice').className         = 'tile-ice';
+}
+
+function updateTileGps(id, tel) {
+    const tile = grid.querySelector(`.tile[data-id="${id}"]`);
+    if (!tile || tel.lat == null) return;
+    const gpsEl = tile.querySelector('.tile-gps');
+    gpsEl.querySelector('.coords').textContent =
+        `${parseFloat(tel.lat).toFixed(5)}, ${parseFloat(tel.lon).toFixed(5)}`;
+    gpsEl.querySelector('.acc').textContent =
+        tel.acc != null ? `±${parseFloat(tel.acc).toFixed(0)}m` : '';
+    gpsEl.style.display = '';
+}
+
+function updateTileIce(id, state) {
+    const tile = grid.querySelector(`.tile[data-id="${id}"]`);
+    if (!tile) return;
+    const el = tile.querySelector('.tile-ice');
+    el.textContent = state;
+    el.className   = 'tile-ice' + (state==='connected'||state==='completed' ? ' ok' : '');
+}
+
+// ─── Watch / Unwatch ─────────────────────────────────────────────────────────
+function watchDevice(id) {
+    if (activeSet.has(id)) return;
+    activeSet.add(id);
+    createTile(id);
+    updateGridLayout();
+    sendSignal({ type: 'request-offer', targetId: id });
+    log(`Flux demandé → ${devices.get(id)?.name}`);
+    renderDevices();
+}
+
+function unwatchDevice(id) {
+    if (!activeSet.has(id)) return;
+    if (focusedId === id) closeFocus();
+    activeSet.delete(id);
+    sendSignal({ type: 'stop-stream', targetId: id });
+    closePeer(id);
+    removeTile(id);
+    updateGridLayout();
+    log(`Stream arrêté → ${devices.get(id)?.name}`);
+    renderDevices();
+}
+
+function stopAllStreams() { [...activeSet].forEach(id => unwatchDevice(id)); }
+
+// ─── Carte Leaflet ────────────────────────────────────────────────────────────
+const MARKER_ICON = L.divIcon({
+    className: '',
+    html: '<div style="width:14px;height:14px;background:#00e5ff;border-radius:50%;border:2px solid #fff;box-shadow:0 0 10px #00e5ff,0 0 4px #00e5ff"></div>',
+    iconSize: [14, 14], iconAnchor: [7, 7]
+});
+
+function initMap(lat, lon, acc) {
+    if (focusMap) { focusMap.remove(); focusMap = null; focusMarker = null; focusCircle = null; }
+    focusMap = L.map('focus-map', { zoomControl: true, attributionControl: true })
+                .setView([lat, lon], 13);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> © <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd', maxZoom: 19
+    }).addTo(focusMap);
+    focusMarker = L.marker([lat, lon], { icon: MARKER_ICON }).addTo(focusMap);
+    if (acc && acc < 5000) {
+        focusCircle = L.circle([lat, lon], {
+            radius: acc, color: '#00e5ff', weight: 1,
+            fillColor: '#00e5ff', fillOpacity: 0.07
+        }).addTo(focusMap);
+    }
+}
+
+function updateFocusMap(lat, lon, acc) {
+    if (!focusMap) { initMap(lat, lon, acc); return; }
+    focusMarker.setLatLng([lat, lon]);
+    focusMap.panTo([lat, lon]);
+    if (focusCircle) {
+        focusCircle.setLatLng([lat, lon]);
+        if (acc && acc < 5000) focusCircle.setRadius(acc);
+    }
+}
+
+// ─── Vue focus ────────────────────────────────────────────────────────────────
+function openFocus(id) {
+    const dev = devices.get(id);
+    if (!dev || dev.offline) return;
+    focusedId = id;
+
+    document.getElementById('focus-device-name').textContent = dev.name;
+    document.getElementById('focus-flip').onclick = () => {
+        sendSignal({ type: 'flip-camera', targetId: id });
+        log(`Flip → ${dev.name}`);
+    };
+
+    // Vidéo avec son
+    focusVideoEl.srcObject = dev.stream || null;
+    focusVideoEl.volume    = parseFloat(focusVolume.value);
+    focusVideoEl.muted     = parseFloat(focusVolume.value) === 0;
+
+    // GPS
+    updateFocusGps(dev.telemetry);
+
+    // ICE
+    document.getElementById('focus-ice').textContent = dev.iceState || '—';
+
+    // Notifications du device
+    renderFocusNotifs(id);
+    updateFocusStats();
+
+    focusOverlay.classList.add('open');
+
+    // Leaflet a besoin que le conteneur soit visible avant l'init
+    setTimeout(() => {
+        const tel = dev.telemetry;
+        if (tel?.lat != null) {
+            initMap(parseFloat(tel.lat), parseFloat(tel.lon), tel.acc ? parseFloat(tel.acc) : null);
+        } else if (focusMap) {
+            focusMap.invalidateSize();
+        }
+    }, 120);
+}
+
+function closeFocus() {
+    focusedId = null;
+    focusVideoEl.srcObject = null;
+    focusVideoEl.muted = true;
+    if (focusMap) { focusMap.remove(); focusMap = null; focusMarker = null; focusCircle = null; }
+    focusOverlay.classList.remove('open');
+}
+
+function updateFocusGps(tel) {
+    if (!tel || tel.lat == null) return;
+    const lat = parseFloat(tel.lat);
+    const lon = parseFloat(tel.lon);
+    const acc = tel.acc != null ? parseFloat(tel.acc) : null;
+    document.getElementById('focus-lat').textContent = lat.toFixed(6);
+    document.getElementById('focus-lon').textContent = lon.toFixed(6);
+    document.getElementById('focus-alt').textContent = tel.alt != null ? `${parseFloat(tel.alt).toFixed(1)} m` : '—';
+    document.getElementById('focus-acc').textContent = acc != null ? `± ${acc.toFixed(1)} m` : '—';
+    const link = document.getElementById('focus-maps');
+    link.href = `https://www.google.com/maps?q=${lat.toFixed(6)},${lon.toFixed(6)}`;
+    link.style.display = '';
+    setDot('gps', 'ok', 'GPS');
+    updateFocusMap(lat, lon, acc);
+}
+
+function renderFocusNotifs(id) {
+    const dev  = devices.get(id);
+    const list = document.getElementById('focus-notif-list');
+    list.innerHTML = '';
+    const notifs = dev?.notifications || [];
+    if (notifs.length === 0) {
+        list.innerHTML = '<div class="no-notifs">Aucune notification</div>';
+        return;
+    }
+    notifs.slice().reverse().forEach(n => {
+        const item = document.createElement('div');
+        item.className = 'notif-item';
+        item.innerHTML =
+            `<div class="notif-app">${escHtml(n.app)}</div>` +
+            `<div class="notif-title">${escHtml(n.title)}</div>` +
+            (n.text ? `<div class="notif-body">${escHtml(n.text)}</div>` : '') +
+            `<div class="notif-meta">${new Date(n.ts).toLocaleTimeString('fr-FR')}</div>`;
+        list.appendChild(item);
+    });
+}
+
+// ─── Device list ──────────────────────────────────────────────────────────────
+function renderDevices() {
+    const list  = document.getElementById('devices-list');
+    const count = document.getElementById('device-count');
+    count.textContent = [...devices.values()].filter(d => !d.offline).length;
+
+    if (devices.size === 0) {
+        list.innerHTML = '<div class="no-devices">Aucun appareil<br>connecté</div>';
+        return;
+    }
+    list.innerHTML = '';
+    devices.forEach((dev, id) => {
+        const watching  = activeSet.has(id);
+        const streaming = watching && !!dev.pc;
+        const card = document.createElement('div');
+        card.className = 'device-card' + (dev.offline ? ' offline' : '') + (watching ? ' watching' : '');
+        const dotCls = dev.offline ? '' : (streaming ? 'streaming' : 'online');
+        card.innerHTML =
+            `<div class="device-name">${escHtml(dev.name)}</div>
+            <div class="device-id">${id.substring(0,16)}…</div>
+            <div class="device-meta">
+                <div class="device-dot ${dotCls}"></div>
+                <span>${dev.offline ? 'Hors ligne' : (streaming ? 'Streaming' : (watching ? 'En attente…' : 'Connecté'))}</span>
+                ${dev.telemetry ? '<span>· GPS ✓</span>' : ''}
+            </div>`;
+        if (!dev.offline) {
+            card.addEventListener('click', () => {
+                if (activeSet.has(id)) unwatchDevice(id);
+                else watchDevice(id);
+            });
+        }
+        list.appendChild(card);
+    });
+}
+
+// ─── Signalisation ────────────────────────────────────────────────────────────
+function connectSignaling() {
+    if (ws) { ws.close(); ws = null; }
+    const url = `ws://${location.host}`;
+    document.getElementById('footer-host').textContent = location.host;
+    log(`Connexion à ${url}…`);
+    ws = new WebSocket(url);
+    ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'register', role: 'browser' }));
+        setDot('sig', 'warn', 'Signalisation');
+        connected = true;
+        btnConnect.textContent = 'Déconnecter';
+        log('Signalisation connectée', 'ok');
+    };
+    ws.onmessage = ({ data }) => {
+        let msg; try { msg = JSON.parse(data); } catch { return; }
+        handleSignaling(msg);
+    };
+    ws.onclose = () => {
+        setDot('sig', 'err', 'Déconnecté');
+        log('Signalisation fermée', 'error');
+        connected = false;
+        btnConnect.textContent = 'Connecter';
+        btnStopAll.disabled = true;
+        if (focusedId) closeFocus();
+        devices.forEach((dev, id) => { closePeer(id); dev.offline = true; });
+        renderDevices();
+    };
+    ws.onerror = () => log('Erreur WebSocket', 'error');
+}
+
+function sendSignal(msg) {
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+
+async function handleSignaling(msg) {
+    switch (msg.type) {
+
+        case 'registered':
+            setDot('sig', 'ok', 'Signalisation');
+            log('Connecté — en attente des appareils Android…');
+            break;
+
+        case 'peer-joined': {
+            const { id, name } = msg;
+            const wasWatching = activeSet.has(id);
+            if (devices.has(id)) {
+                const d = devices.get(id); d.offline = false; d.name = name;
+            } else {
+                devices.set(id, { name, pc: null, stream: null, telemetry: null, iceState: null, offline: false, notifications: [],
+                    statsInterval: null, stats: { fpsIn: 0, fpsOut: 0, width: 0, height: 0 } });
+            }
+            renderDevices();
+            log(`Appareil connecté : ${name}`, 'ok');
+            if (wasWatching) { closePeer(id); resetTile(id); sendSignal({ type: 'request-offer', targetId: id }); }
+            break;
+        }
+
+        case 'peer-left': {
+            const { id } = msg;
+            const dev = devices.get(id);
+            if (dev) { closePeer(id); dev.offline = true; dev.pc = null; dev.stream = null; }
+            log(`Appareil déconnecté : ${dev?.name || id}`, 'error');
+            if (activeSet.has(id)) resetTile(id);
+            if (focusedId === id) closeFocus();
+            renderDevices();
+            break;
+        }
+
+        case 'offer': {
+            const fromId = msg.fromId;
+            if (!fromId || !devices.has(fromId)) break;
+            log(`Offer reçue de ${devices.get(fromId).name}`);
+            await handleOffer(fromId, msg);
+            break;
+        }
+
+        case 'answer': {
+            const dev = devices.get(msg.fromId);
+            if (dev?.pc) { await dev.pc.setRemoteDescription(new RTCSessionDescription(msg)); }
+            break;
+        }
+
+        case 'ice-candidate': {
+            const dev = devices.get(msg.fromId);
+            if (dev?.pc && msg.candidate) {
+                try { await dev.pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); }
+                catch (e) { log('ICE ignorée: ' + e.message); }
+            }
+            break;
+        }
+
+        case 'crash-report': {
+            const dev  = devices.get(msg.fromId);
+            const name = dev?.name || msg.fromId;
+            const when = msg.ts ? new Date(msg.ts).toLocaleString('fr-FR') : '?';
+            log(`⚠ CRASH [${name}] le ${when} — ${msg.msg}`, 'error');
+            break;
+        }
+
+        case 'notification': {
+            const dev = devices.get(msg.fromId);
+            if (dev) {
+                if (!dev.notifications) dev.notifications = [];
+                dev.notifications.push({ app: msg.app, title: msg.title, text: msg.text, ts: msg.ts });
+                if (dev.notifications.length > 50) dev.notifications.shift();
+            }
+            addGlobalNotif(dev?.name || msg.fromId, msg.app, msg.title, msg.text, msg.ts);
+            // Rafraîchir la liste focus si ce device est ouvert
+            if (focusedId === msg.fromId) renderFocusNotifs(msg.fromId);
+            break;
+        }
+    }
+}
+
+// ─── WebRTC ───────────────────────────────────────────────────────────────────
+async function handleOffer(deviceId, msg) {
+    closePeer(deviceId);
+    const dev = devices.get(deviceId);
+    const pc  = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    dev.pc = pc;
+
+    pc.onicecandidate = ({ candidate }) => {
+        if (candidate) sendSignal({ type: 'ice-candidate', targetId: deviceId, candidate });
+    };
+
+    pc.oniceconnectionstatechange = () => {
+        const s = pc.iceConnectionState;
+        dev.iceState = s;
+        updateTileIce(deviceId, s);
+        if (focusedId === deviceId) document.getElementById('focus-ice').textContent = s;
+        log(`ICE (${dev.name}): ${s}`,
+            s==='connected'||s==='completed' ? 'ok' : s==='failed' ? 'error' : 'info');
+        renderDevices();
+    };
+
+    pc.ontrack = ({ track, streams }) => {
+        log(`Track ${track.kind} reçue de ${dev.name}`, 'ok');
+        if (track.kind === 'video') {
+            dev.stream = streams[0];
+            // Tile : video muette (audio uniquement dans le focus)
+            const tile = grid.querySelector(`.tile[data-id="${deviceId}"]`);
+            if (tile) {
+                const v = tile.querySelector('video');
+                v.srcObject = streams[0];
+                v.muted = true;
+                tile.querySelector('.tile-waiting').style.display = 'none';
+            }
+            // Si ce device est focalisé, mettre à jour la vidéo focus
+            if (focusedId === deviceId) {
+                focusVideoEl.srcObject = streams[0];
+                focusVideoEl.volume    = parseFloat(focusVolume.value);
+                focusVideoEl.muted     = parseFloat(focusVolume.value) === 0;
+            }
+            renderDevices();
+        }
+    };
+
+    pc.ondatachannel = ({ channel }) => {
+        channel.onmessage = ({ data }) => {
+            try {
+                const msg = JSON.parse(data);
+                if (msg.type === 'stats') {
+                    if (!dev.stats) dev.stats = {};
+                    dev.stats.fpsOut = msg.fps  || 0;
+                    if (msg.width)   dev.stats.width   = msg.width;
+                    if (msg.height)  dev.stats.height  = msg.height;
+                    if (msg.quality) dev.stats.quality = msg.quality;
+                    dev.stats.bwAndroidKbps = msg.bw_kbps || 0; // estimation GCC Android
+                    updateTileStats(deviceId);
+                    if (focusedId === deviceId) updateFocusStats();
+                } else {
+                    dev.telemetry = msg;
+                    updateTileGps(deviceId, msg);
+                    if (focusedId === deviceId) updateFocusGps(msg);
+                    renderDevices();
+                }
+            } catch {}
+        };
+    };
+
+    await pc.setRemoteDescription(new RTCSessionDescription(msg));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    sendSignal({ type: 'answer', targetId: deviceId, sdp: answer.sdp });
+    log(`Answer envoyée à ${dev.name}`);
+    startStatsPolling(deviceId);
+}
+
+function closePeer(deviceId) {
+    stopStatsPolling(deviceId);
+    const dev = devices.get(deviceId);
+    if (!dev?.pc) return;
+    dev.pc.close(); dev.pc = null; dev.stream = null; dev.iceState = null;
+    resetTile(deviceId);
+}
+
+// ─── Stats WebRTC ─────────────────────────────────────────────────────────────
+function startStatsPolling(id) {
+    stopStatsPolling(id);
+    const dev = devices.get(id);
+    if (!dev) return;
+    let lastDecoded = 0, lastBytes = 0, lastPktsLost = 0, lastPktsReceived = 0;
+    dev.statsInterval = setInterval(async () => {
+        if (!dev.pc) return;
+        try {
+            const report = await dev.pc.getStats();
+            report.forEach(r => {
+                if (r.type === 'inbound-rtp' && r.kind === 'video') {
+                    // FPS reçus
+                    const decoded = r.framesDecoded || 0;
+                    dev.stats.fpsIn = Math.max(0, decoded - lastDecoded);
+                    lastDecoded = decoded;
+                    // Débit réel reçu
+                    const bytes = r.bytesReceived || 0;
+                    dev.stats.bwKbps = Math.round((bytes - lastBytes) * 8 / 1000);
+                    lastBytes = bytes;
+                    // Perte de paquets (delta sur la fenêtre d'1s)
+                    const pktsLost     = r.packetsLost     || 0;
+                    const pktsReceived = r.packetsReceived || 0;
+                    const deltaPkts    = (pktsReceived - lastPktsReceived) + (pktsLost - lastPktsLost);
+                    const deltaLost    = pktsLost - lastPktsLost;
+                    dev.stats.lossPct  = deltaPkts > 0
+                        ? (deltaLost / deltaPkts * 100).toFixed(1)
+                        : '0.0';
+                    lastPktsLost     = pktsLost;
+                    lastPktsReceived = pktsReceived;
+                }
+                if (r.type === 'candidate-pair' && r.nominated) {
+                    dev.stats.rttMs = Math.round((r.currentRoundTripTime || 0) * 1000);
+                }
+            });
+        } catch {}
+        updateTileStats(id);
+        if (focusedId === id) updateFocusStats();
+    }, 1000);
+}
+
+function stopStatsPolling(id) {
+    const dev = devices.get(id);
+    if (dev?.statsInterval) { clearInterval(dev.statsInterval); dev.statsInterval = null; }
+}
+
+function updateTileStats(id) {
+    const tile = grid.querySelector(`.tile[data-id="${id}"]`);
+    if (!tile) return;
+    const s = devices.get(id)?.stats;
+    if (!s) return;
+    const el = tile.querySelector('.tile-fps');
+    if (!el) return;
+    const hasFps = s.fpsIn > 0 || s.fpsOut > 0;
+    if (!hasFps && !s.width) { el.textContent = ''; return; }
+    let txt = `↓${s.fpsIn} ↑${s.fpsOut}fps`;
+    if (s.width && s.height) txt += ` · ${s.width}×${s.height}`;
+    el.textContent = txt;
+}
+
+function updateFocusStats() {
+    if (!focusedId) return;
+    const s = devices.get(focusedId)?.stats;
+    if (!s) return;
+    document.getElementById('focus-fps-in').textContent  = s.fpsIn  > 0 ? `${s.fpsIn} fps`  : '—';
+    document.getElementById('focus-fps-out').textContent = s.fpsOut > 0 ? `${s.fpsOut} fps` : '—';
+    document.getElementById('focus-res').textContent     = (s.width && s.height) ? `${s.width} × ${s.height}` : '—';
+
+    // ABR
+    const q = s.quality || 'HIGH';
+    const qEl = document.getElementById('focus-quality');
+    if (qEl) { qEl.textContent = q; qEl.className = 'v q-' + q; }
+
+    const bwEl = document.getElementById('focus-bw');
+    if (bwEl) bwEl.textContent = (s.bwKbps || 0) + ' kbps';
+
+    const bwAndroidEl = document.getElementById('focus-bw-android');
+    if (bwAndroidEl) bwAndroidEl.textContent = (s.bwAndroidKbps != null ? s.bwAndroidKbps : '—') + ' kbps';
+
+    const lEl = document.getElementById('focus-loss');
+    if (lEl) lEl.textContent = (s.lossPct || '0.0') + '%';
+
+    const rEl = document.getElementById('focus-rtt');
+    if (rEl) rEl.textContent = (s.rttMs || 0) + ' ms';
+
+    const bar = document.getElementById('focus-bw-bar');
+    if (bar) {
+        bar.style.width = Math.min(100, Math.round((s.bwKbps || 0) / 40)) + '%';
+        bar.style.background = q === 'HIGH' ? 'var(--green)'
+                             : q === 'MEDIUM' ? 'var(--yellow)'
+                             : 'var(--red)';
+    }
+}
+
+// ─── Notifications globales ───────────────────────────────────────────────────
+function addGlobalNotif(deviceName, appName, title, text, ts) {
+    const list  = document.getElementById('global-notif-list');
+    const empty = list.querySelector('.no-notifs');
+    if (empty) empty.remove();
+    const item = document.createElement('div');
+    item.className = 'notif-item';
+    item.innerHTML =
+        `<div class="notif-app">${escHtml(appName)} <span style="color:var(--muted)">· ${escHtml(deviceName)}</span></div>` +
+        `<div class="notif-title">${escHtml(title)}</div>` +
+        (text ? `<div class="notif-body">${escHtml(text)}</div>` : '') +
+        `<div class="notif-meta">${new Date(ts).toLocaleTimeString('fr-FR')}</div>`;
+    list.prepend(item);
+    if (list.children.length > 50) list.lastElementChild.remove();
+}
+
+function escHtml(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── Boutons & contrôles ──────────────────────────────────────────────────────
+btnConnect.addEventListener('click', () => {
+    if (connected) { ws?.close(); } else { connectSignaling(); }
+});
+
+btnStopAll.addEventListener('click', stopAllStreams);
+
+document.getElementById('focus-back').addEventListener('click', closeFocus);
+
+// Volume grille (muet dans les tiles, mais prêt pour le focus)
+volumeEl.addEventListener('input', () => {
+    const v = parseFloat(volumeEl.value);
+    focusVolume.value = v;
+    if (focusedId) {
+        focusVideoEl.volume = v;
+        focusVideoEl.muted  = false;
+    }
+});
+
+// Volume dans le focus
+focusVolume.addEventListener('input', () => {
+    const v = parseFloat(focusVolume.value);
+    volumeEl.value = v;
+    focusVideoEl.volume = v;
+    focusVideoEl.muted  = false;
+});
+
+// Fermer focus avec Échap
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && focusedId) closeFocus();
+});
+
+// ─── Horloge ──────────────────────────────────────────────────────────────────
+setInterval(() => {
+    document.getElementById('footer-time').textContent =
+        new Date().toLocaleTimeString('fr-FR');
+}, 1000);
+
+connectSignaling();
+</script>
+</body>
+</html>

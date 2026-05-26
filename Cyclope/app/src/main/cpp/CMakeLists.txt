@@ -11,13 +11,8 @@ cmake_minimum_required(VERSION 3.22.1)
 # build script scope).
 project("cyclope")
 
-set(OpenCV_DIR C:/Users/ladiaviakoye/Documents/MesCours/Android_NDK/Opencv/sdk/native/jni)
-
-# Recherche la bibliothèque système 'log' (nécessaire pour la journalisation Android).
-#find_library(log-lib log)
-
-# Recherche la bibliothèque OpenCV (souvent nommée opencv_java4) pour l'ABI en cours.
-find_package(OpenCV REQUIRED)
+# Stubs OpenCV header-only (pas de lib externe requise)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/opencv_stub)
 # used in the AndroidManifest.xml file.
 add_library(${CMAKE_PROJECT_NAME} SHARED
     # List C/C++ source files with relative paths to this CMakeLists.txt.
@@ -32,8 +27,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 # build script, prebuilt third-party libraries, or Android system libraries.
 target_link_libraries(${CMAKE_PROJECT_NAME}
     # List libraries link to the target library
-    ${log-lib}      # Bibliothèque de journalisation Android.
-    ${OpenCV_LIBS}   # Bibliothèque OpenCV.
+    # OpenCV remplacé par stubs header-only
     camera2ndk      # Bibliothèque NDK pour la caméra.
     mediandk        # Bibliothèque NDK pour le multimédia.
     android

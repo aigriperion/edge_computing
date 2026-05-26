@@ -17,6 +17,7 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <chrono>
 
 
 using namespace cv;
@@ -43,6 +44,9 @@ public:
     void StartCameraLoop();
     void TearDownCamera();
     void ReleaseMats();
+    void SetGpsData(double lat, double lon, double alt, float accuracy);
+    void SetFrameCallback(JavaVM *jvm, jobject cb, JNIEnv *env);
+    void SetTargetFps(int fps);
 
 private:
     ANativeWindow *m_native_window;
@@ -79,6 +83,24 @@ private:
     std::atomic<bool> m_camera_thread_stopped{false};
     std::atomic<bool> m_camera_ready{false};
     std::mutex m_camera_mutex;
+
+    // GPS — mis à jour depuis le thread Java, lu depuis CameraLoop
+    std::mutex m_gps_mutex;
+    double m_gps_lat{0.0};
+    double m_gps_lon{0.0};
+    double m_gps_alt{0.0};
+    float  m_gps_acc{0.0f};
+    std::atomic<bool> m_gps_valid{false};
+
+    // ABR — throttling FPS côté NDK
+    std::atomic<int> m_target_fps{30};
+    int64_t          m_last_sent_frame_ns{0};
+
+    JavaVM              *m_jvm{nullptr};
+    jobject              m_frame_cb{nullptr};
+    jmethodID            m_onframe_mid{nullptr};
+    uint32_t             m_orientation{0};
+    std::vector<uint8_t> m_nv21_buf;
 
 };
 
